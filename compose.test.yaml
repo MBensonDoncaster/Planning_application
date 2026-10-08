@@ -1,0 +1,30 @@
+# Separate ephemeral test stack; no application ports or persistent volume.
+services:
+  postgres_test:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: planning_test
+      POSTGRES_USER: planning_test
+      POSTGRES_PASSWORD: synthetic-test-only
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U planning_test -d planning_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+  verify:
+    build:
+      context: .
+      target: verification
+    environment:
+      DATABASE_URL: postgresql://planning_test:synthetic-test-only@postgres_test:5432/planning_test
+      TEST_DATABASE_URL: postgresql://planning_test:synthetic-test-only@postgres_test:5432/planning_test
+    depends_on:
+      postgres_test:
+        condition: service_healthy
+    init: true
+    shm_size: 1gb
+    volumes:
+      - ./playwright-report:/app/playwright-report
+      - ./test-results:/app/test-results

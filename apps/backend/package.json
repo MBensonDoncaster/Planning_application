@@ -13,7 +13,9 @@
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:migrate:status": "prisma migrate status",
-    "admin:bootstrap": "tsx src/scripts/bootstrap-admin.ts"
+    "admin:bootstrap": "tsx src/scripts/bootstrap-admin.ts",
+    "test:database": "tsx test/run-database-tests.ts",
+    "seed:synthetic": "tsx test/seed-synthetic.ts"
   },
   "dependencies": {
     "@fastify/helmet": "13.1.2",

@@ -1,50 +1,35 @@
-import { readFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import { Pool } from 'pg';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient } from '../src/generated/prisma/client.js';
+import { readdir } from 'node:fs/promises';
 import { createUserRepository } from '../src/modules/users/repository.js';
 import type { UserRepository } from '../src/modules/users/types.js';
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
+import { createTestDatabase, deployMigrations, requireTestDatabase, type TestDatabase } from '../test/support/database.js';
+import { seedSyntheticUsers, SYNTHETIC_USERS } from '../test/support/synthetic-users.js';
 
 const testUrl = process.env.TEST_DATABASE_URL;
-const schema = `template_test_${randomUUID().replaceAll('-', '')}`;
-let pool: Pool;
+if (process.env.REQUIRE_TEST_DATABASE === '1') requireTestDatabase(testUrl);
+let database: TestDatabase;
 let repository: UserRepository;
 
 describe.skipIf(!testUrl)('PostgreSQL repository integration', () => {
   beforeAll(async () => {
-    const url = new URL(testUrl!);
-    if (!url.pathname.endsWith('_test')) throw new Error('TEST_DATABASE_URL must point to an isolated database ending in _test.');
-    pool = new Pool({ connectionString: testUrl });
-    await pool.query(`CREATE SCHEMA "${schema}"`);
-    url.searchParams.set('options', `-c search_path=${schema}`);
-    const setup = new Pool({ connectionString: url.toString() });
-    try {
-      const sql = await readFile(new URL('../prisma/migrations/20261008000000_initial_users/migration.sql', import.meta.url), 'utf8');
-      await setup.query(sql);
-    } finally { await setup.end(); }
-    repository = createUserRepository(new PrismaClient({ adapter: new PrismaPg({ connectionString: url.toString() }, { schema }) }));
-  });
-  beforeEach(async () => { await pool.query(`TRUNCATE TABLE "${schema}"."users" CASCADE`); });
+    database = await createTestDatabase(testUrl);
+    repository = createUserRepository(database.createClient());
+  }, 60_000);
+  beforeEach(async () => { await database.pool.query('TRUNCATE TABLE "users" CASCADE'); });
   afterAll(async () => {
     await repository?.close();
-    if (pool) {
-      // schema is generated locally above and restricted to a fixed prefix + hex.
-      await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
-      await pool.end();
-    }
+    await database?.cleanup();
   });
   async function admin(subject: string) {
     const user = await repository.authenticate({ subject, email: `${subject}@example.test`, displayName: subject });
-    await pool.query(`UPDATE "${schema}"."users" SET role='ADMIN', status='APPROVED', approved_at=NOW() WHERE id=$1`, [user.id]);
+    await database.pool.query(`UPDATE "users" SET role='ADMIN', status='APPROVED', approved_at=NOW() WHERE id=$1`, [user.id]);
     return user;
   }
   it('registers once and preserves local access during subsequent profile updates', async () => {
     const identity = { subject: 'entra:tenant:object', email: 'ada@example.test', displayName: 'Ada' };
     const first = await repository.authenticate(identity);
     expect(first.status).toBe('PENDING'); expect(first.role).toBe('USER');
-    await pool.query(`UPDATE "${schema}"."users" SET role='ADMIN', status='DISABLED' WHERE id=$1`, [first.id]);
+    await database.pool.query(`UPDATE "users" SET role='ADMIN', status='DISABLED' WHERE id=$1`, [first.id]);
     const again = await repository.authenticate({ ...identity, displayName: 'Ada Updated' });
     expect(again.id).toBe(first.id); expect(again.displayName).toBe('Ada Updated');
     expect(again.status).toBe('DISABLED'); expect(again.role).toBe('ADMIN');
@@ -64,7 +49,40 @@ describe.skipIf(!testUrl)('PostgreSQL repository integration', () => {
       repository.change(b.id, b.id, { action: 'role', role: 'USER' }),
     ]);
     expect(results.filter(r => r.status === 'fulfilled')).toHaveLength(1);
-    const count = await pool.query(`SELECT COUNT(*)::int AS count FROM "${schema}"."users" WHERE role='ADMIN' AND status='APPROVED'`);
+    const count = await database.pool.query(`SELECT COUNT(*)::int AS count FROM "users" WHERE role='ADMIN' AND status='APPROVED'`);
     expect(count.rows[0].count).toBe(1);
+  });
+  it('deploys the complete committed migration chain and safely repeats deploy', async () => {
+    const directories = await readdir(new URL('../prisma/migrations/', import.meta.url), { withFileTypes: true });
+    const expected = directories.filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
+    await deployMigrations(database.migrationUrl);
+    const migrations = await database.pool.query('SELECT migration_name, finished_at, rolled_back_at FROM "_prisma_migrations" ORDER BY migration_name');
+    expect(migrations.rows.map(row => row.migration_name)).toEqual(expected);
+    expect(migrations.rows.every(row => row.finished_at && !row.rolled_back_at)).toBe(true);
+  }, 60_000);
+  it('isolates simultaneous schemas and removes the temporary schema on cleanup', async () => {
+    const other = await createTestDatabase(testUrl);
+    try {
+      await repository.authenticate({ subject: 'isolated', email: '', displayName: 'Isolated' });
+      expect((await other.pool.query('SELECT COUNT(*)::int AS count FROM "users"')).rows[0].count).toBe(0);
+    } finally { await other.cleanup(); }
+    const result = await database.pool.query('SELECT schema_name FROM information_schema.schemata WHERE schema_name=$1', [other.schema]);
+    expect(result.rows).toEqual([]);
+  }, 60_000);
+  it('seeds synthetic actors idempotently without creating business records', async () => {
+    const client = database.createClient();
+    try { await seedSyntheticUsers(client); await seedSyntheticUsers(client); }
+    finally { await client.$disconnect(); }
+    const actors = await database.pool.query('SELECT sso_subject, role, status FROM "users" ORDER BY sso_subject');
+    expect(actors.rows).toEqual([...SYNTHETIC_USERS].sort((a, b) => a.subject.localeCompare(b.subject)).map(actor => ({ sso_subject: actor.subject, role: actor.role, status: actor.status })));
+  });
+  it('removes the temporary schema when migration setup fails', async () => {
+    let failedSchema = '';
+    await expect(createTestDatabase(testUrl, async url => {
+      failedSchema = new URL(url).searchParams.get('schema')!;
+      throw new Error('Injected migration failure');
+    })).rejects.toThrow('Injected migration failure');
+    expect(failedSchema).toMatch(/^planning_test_[a-f0-9]{32}$/);
+    expect((await database.pool.query('SELECT schema_name FROM information_schema.schemata WHERE schema_name=$1', [failedSchema])).rows).toEqual([]);
   });
 });

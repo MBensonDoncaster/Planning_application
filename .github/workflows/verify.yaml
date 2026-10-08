@@ -1,0 +1,29 @@
+name: Verify
+on:
+  pull_request:
+    branches: [test, main]
+  push:
+    branches: [test, 'feature/**']
+permissions:
+  contents: read
+jobs:
+  synthetic-verification:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Verify with isolated PostgreSQL and Chromium
+        run: docker compose -p planning-ci -f compose.test.yaml up --build --abort-on-container-exit --exit-code-from verify
+      - name: Save browser failure evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: browser-results
+          path: |
+            playwright-report/
+            test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Remove test containers and temporary database
+        if: always()
+        run: docker compose -p planning-ci -f compose.test.yaml down --remove-orphans
