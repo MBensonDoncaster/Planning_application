@@ -1,6 +1,6 @@
-# Reusable application template
+# Planning application
 
-A small, deployment-agnostic starter: React, Material UI and TypeScript in the browser; a Fastify API; and PostgreSQL accessed through Prisma. Frontend and API share one origin in the container. Node.js 24 and npm 11 are required for host development.
+The Planning application starts from a provider-independent template: React, Material UI and TypeScript in the browser; a Fastify API; and PostgreSQL accessed through Prisma. Frontend and API share one origin in the container. Use Node.js 24.21.0 (`.nvmrc`) and npm 11.19.0 (`packageManager`) for host development, matching the pinned Docker image. The supported engine ranges remain Node.js 24 and npm 11.
 
 The only application table is `users`. Prisma also maintains its own migration-history table. There are no example business features, uploads or cloud-provider dependencies.
 
@@ -88,14 +88,14 @@ Check dependency security with `npm.cmd run audit:security` (requires access to 
 The [initial committed migration](apps/backend/prisma/migrations/20261008000000_initial_users/migration.sql) defines the user table. Apply committed migrations using `npm.cmd run migrate:deploy`; inspect them using `npm.cmd run migrate:status`. For a deliberate schema change, edit `apps/backend/prisma/schema.prisma`, then run:
 
 ```powershell
-npm.cmd run prisma:migrate:dev --workspace=@template/backend -- --name describe_change
+npm.cmd run prisma:migrate:dev --workspace=@planning/backend -- --name describe_change
 ```
 
 Commit both the schema and migration SQL. Never run development migrations or `db push` against production.
 
 ## Reuse and deployment
 
-Copy this repository, rename the root and workspace packages (including `@template` script references), set a unique Compose project/database name, and regenerate the lockfile after package changes. Set `APP_NAME` and your own Entra values. Add future features under `apps/frontend/src/features` and `apps/backend/src/modules`; keep HTTP calls behind the shared browser client and protect new API routes on the server.
+The root package is `planning-application`, with `@planning/backend` and `@planning/frontend` workspaces. The example Compose project is `planning-application` and the display name is Planning. Set your own Entra values for deployed environments. Add future features under `apps/frontend/src/features` and `apps/backend/src/modules`; keep HTTP calls behind the shared browser client and protect new API routes on the server.
 
 The shared visual theme is defined in `apps/frontend/src/theme.ts`: charcoal navigation, a teal divider, magenta gradient page banners and white cards on a warm background. The header places the bundled council logo beside the primary navigation; it is implemented in `apps/frontend/src/components/AppHeader.tsx`, with the logo in `apps/frontend/public/branding/`. Reuse `PageBanner` for new page headings and change the shared theme tokens and branding assets to rebrand a copied template. Reference screenshots remain local in the ignored source-documentation folder; the application does not require them at runtime.
 
