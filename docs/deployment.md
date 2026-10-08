@@ -21,7 +21,7 @@ The runtime image includes compiled frontend/backend code, the generated Prisma 
 - Route the hostname to the container's `PORT` and preserve browser/API paths on the same origin. Avoid a subpath mount. Register this exact hostname/origin in Entra.
 - Only enable `TRUST_PROXY=true` if the app is reachable solely through a controlled proxy that overwrites forwarded headers. Otherwise leave it false. Per-process rate limits are not a cluster-wide quota; put a shared limit at your entry point if required.
 - Set a private PostgreSQL connection in `DATABASE_URL`. For a remote database, use verified TLS, for example `sslmode=verify-full&sslrootcert=/run/certs/postgres-ca.pem`, and mount the trusted CA at that path in both runtime and migration jobs. The local Compose database uses plain transport inside its local/private network.
-- Use separate migration-owner and runtime database credentials. Runtime needs CRUD access to `users`, not schema modification or access to `_prisma_migrations`. The API's administration path uses `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE`; ensure the runtime role's UPDATE permission supports that lock. Keep migration credentials out of the running application.
+- Use separate migration-owner and runtime database credentials. Apply the explicit runtime grant script below after migrating. Runtime needs SELECT/INSERT/UPDATE on users, integrations and keys; audit INSERT/SELECT only; and CRUD on expiring idempotency/rate storage. Runtime must not own the schema/tables or inherit an owner/privileged role. The API's administration path uses `LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE`; the supplied UPDATE permission supports that lock. Keep migration credentials out of the running application.
 - Configure persistent database storage, backup retention, log retention, resource limits, monitoring and a controlled migration runner. Default Compose database credentials are for local development and must be replaced for deployment.
 
 An independently hosted database can be used without Compose's `postgres` service: run the two images directly with your host's environment injection, networking and service controls. The application requires no mounted application volume and stores persistent data only in PostgreSQL.
@@ -54,18 +54,21 @@ For the bundled database, `docker compose up --build -d` starts PostgreSQL, appl
 
 ## Database permissions example
 
-Create a database owned by a migration role, revoke public schema creation and give a separate runtime role database connectivity and schema usage. After applying the initial migration as the owner:
+Create a database owned by a migration role and give a separate runtime role database connectivity. Use a non-superuser runtime login with no CREATEDB/CREATEROLE privileges and no memberships granting ownership or wider access. After applying all committed migrations as the owner, apply the supplied script through the operator's PostgreSQL client:
 
-```sql
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.users TO app_runtime;
-REVOKE ALL ON TABLE public._prisma_migrations FROM app_runtime;
+```powershell
+psql --set=ON_ERROR_STOP=1 --set=app_schema=public --set=runtime_role=planning_runtime --file=apps/backend/prisma/runtime-grants.sql
 ```
 
-Use your operator's secure password/secret procedure; do not embed live credentials in committed SQL. Only `users` needs runtime access for this template. Future migrations should deliberately grant permissions for future tables.
+Supply operator connectivity through the normal secure PostgreSQL environment/secret procedure. The script revokes schema creation and blanket table privileges for the selected runtime role, grants only the current table permissions, and excludes `_prisma_migrations`. It grants no audit UPDATE/DELETE/TRUNCATE and no hard deletion of users, integrations or keys. Reapply it when current-table grants change, and explicitly extend it when a later migration adds business tables. Do not grant CRUD on ALL TABLES or apply blanket default grants that would include audit events. The script is packaged in the migrator source tree; the PostgreSQL client runs in the operator environment.
+
+Audit IDs intentionally have no domain foreign keys, so controlled domain deletion cannot cascade into history. Revoked key metadata stays in `api_keys`; ordinary application roles cannot delete it. Idempotency submission IDs have no FK and support a deletion timestamp for retained replay tombstones. The migration bounds audit metadata to a JSON object of at most 64 KiB in its PostgreSQL JSONB text representation. Service-level metadata allowlisting/redaction follows in the audit-service task. Append-only permissions protect against the application role; controlled database owners can perform schema/retention maintenance.
+
+The local development Compose stack still uses its original operator account. Runtime credential separation, secret injection and real database TLS must be configured for deployed environments; permission tests use a separate temporary non-owner test role.
 
 ## Operations and rollback
 
-Monitor readiness failures, 5xx/429 rates, restarts and database capacity. Administrative actions are logged with actor ID, target ID and action; approval metadata is stored on the user record. This template does not contain a separate audit-history table. Configure your log retention/export if a durable history of role/status changes is required.
+Monitor readiness failures, 5xx/429 rates, restarts and database capacity. Current administrative actions are logged with actor ID, target ID and action; approval metadata is stored on the user record. Shared audit storage is present; transactional audit instrumentation and its review workflow are subsequent implementation tasks. Do not treat storage alone as complete application auditing. No automatic audit deletion is configured; record the organisation's retention policy before production. Rate rows accept subject digests rather than raw credential/IP strings; their bounded expiry/cleanup is implemented with the shared throttling service.
 
 Restore backups into an isolated non-production database and verify user records and recovery time before launch. Record the deployed version, migration outcome, smoke-test result, owner and recovery procedure for each release.
 

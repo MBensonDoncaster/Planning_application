@@ -1,6 +1,6 @@
 generator client {
-  provider = "prisma-client"
-  output = "../src/generated/prisma"
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
   moduleFormat = "esm"
 }
 
@@ -21,21 +21,152 @@ enum UserStatus {
 }
 
 model User {
-  id               String     @id @default(uuid()) @db.Uuid
-  ssoSubject       String     @unique @map("sso_subject") @db.VarChar(255)
-  email            String     @db.VarChar(320)
-  displayName      String     @map("display_name") @db.VarChar(200)
-  role             UserRole   @default(USER)
-  status           UserStatus @default(PENDING)
-  createdAt        DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt        DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
-  lastLoginAt      DateTime?  @map("last_login_at") @db.Timestamptz(3)
-  approvedAt       DateTime?  @map("approved_at") @db.Timestamptz(3)
-  approvedByUserId String?    @map("approved_by_user_id") @db.Uuid
-  approvedBy       User?      @relation("Approval", fields: [approvedByUserId], references: [id], onDelete: SetNull)
-  approvedUsers    User[]     @relation("Approval")
+  id                  String        @id @default(uuid()) @db.Uuid
+  ssoSubject          String        @unique @map("sso_subject") @db.VarChar(255)
+  email               String        @db.VarChar(320)
+  displayName         String        @map("display_name") @db.VarChar(200)
+  role                UserRole      @default(USER)
+  status              UserStatus    @default(PENDING)
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lastLoginAt         DateTime?     @map("last_login_at") @db.Timestamptz(3)
+  approvedAt          DateTime?     @map("approved_at") @db.Timestamptz(3)
+  approvedByUserId    String?       @map("approved_by_user_id") @db.Uuid
+  approvedBy          User?         @relation("Approval", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  approvedUsers       User[]        @relation("Approval")
+  createdIntegrations Integration[] @relation("IntegrationCreator")
+  createdApiKeys      ApiKey[]      @relation("KeyCreator")
+  revokedApiKeys      ApiKey[]      @relation("KeyRevoker")
 
   @@index([status])
   @@index([role])
   @@map("users")
+}
+
+model Integration {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String   @db.Text
+  description     String?  @db.Text
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  createdBy       User     @relation("IntegrationCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  keys            ApiKey[]
+
+  // The SQL migration adds unique active names through a partial index.
+  @@map("integrations")
+}
+
+model ApiKey {
+  id              String      @id @default(uuid()) @db.Uuid
+  integrationId   String      @map("integration_id") @db.Uuid
+  integration     Integration @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+  label           String      @db.Text
+  publicPrefix    String      @unique(map: "api_keys_public_prefix_key") @map("public_prefix") @db.Text
+  secretDigest    String      @unique(map: "api_keys_secret_digest_key") @map("secret_digest") @db.Text
+  capabilities    String[]    @db.Text
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt       DateTime    @map("expires_at") @db.Timestamptz(3)
+  revokedAt       DateTime?   @map("revoked_at") @db.Timestamptz(3)
+  lastUsedAt      DateTime?   @map("last_used_at") @db.Timestamptz(3)
+  createdByUserId String      @map("created_by_user_id") @db.Uuid
+  createdBy       User        @relation("KeyCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  revokedByUserId String?     @map("revoked_by_user_id") @db.Uuid
+  revokedBy       User?       @relation("KeyRevoker", fields: [revokedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([integrationId, createdAt(sort: Desc), id(sort: Desc)], map: "api_keys_integration_created_idx")
+  @@map("api_keys")
+}
+
+enum ActorType {
+  USER
+  INTEGRATION
+  SYSTEM
+  UNKNOWN
+}
+
+enum AuditOutcome {
+  SUCCESS
+  FAILURE
+  DENIED
+}
+
+enum IngestionChannel {
+  FILE_JSON
+  FILE_ZIP
+  PASTE
+  INTEGRATION_API
+}
+
+model AuditEvent {
+  id                 String            @id @default(uuid()) @db.Uuid
+  occurredAt         DateTime          @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  requestId          String            @map("request_id") @db.Text
+  actorType          ActorType         @map("actor_type")
+  actorUserId        String?           @map("actor_user_id") @db.Uuid
+  actorIntegrationId String?           @map("actor_integration_id") @db.Uuid
+  actorKeyId         String?           @map("actor_key_id") @db.Uuid
+  module             String            @db.Text
+  action             String            @db.Text
+  targetType         String?           @map("target_type") @db.Text
+  targetId           String?           @map("target_id") @db.Uuid
+  outcome            AuditOutcome
+  errorCode          String?           @map("error_code") @db.Text
+  channel            IngestionChannel?
+  metadata           Json              @default("{}") @db.JsonB
+
+  // Retained actor/target IDs deliberately have no domain foreign keys.
+  @@index([occurredAt(sort: Desc), id(sort: Desc)], map: "audit_events_order_idx")
+  @@index([actorUserId, occurredAt(sort: Desc)], map: "audit_events_user_idx")
+  @@index([actorIntegrationId, occurredAt(sort: Desc)], map: "audit_events_integration_idx")
+  @@index([actorKeyId, occurredAt(sort: Desc)], map: "audit_events_key_idx")
+  @@index([module, action, outcome, occurredAt(sort: Desc)], map: "audit_events_filter_idx")
+  @@index([targetId, occurredAt(sort: Desc)], map: "audit_events_target_idx")
+  @@map("audit_events")
+}
+
+enum IdempotencyActorType {
+  USER
+  INTEGRATION
+}
+
+model IdempotencyRecord {
+  id            String               @id @default(uuid()) @db.Uuid
+  actorType     IdempotencyActorType @map("actor_type")
+  actorId       String               @map("actor_id") @db.Uuid
+  operation     String               @db.Text
+  key           String               @db.Uuid
+  payloadDigest String               @map("payload_digest") @db.Text
+  submissionId  String               @map("submission_id") @db.Uuid
+  response      Json                 @db.JsonB
+  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt     DateTime             @map("expires_at") @db.Timestamptz(3)
+  deletedAt     DateTime?            @map("deleted_at") @db.Timestamptz(3)
+
+  // Actor namespace is (actorType, actorId); key rotation cannot change it.
+  // Submission ID has no FK so deletion leaves a replay tombstone.
+  @@unique([actorType, actorId, operation, key], map: "idempotency_records_namespace_key")
+  @@index([expiresAt], map: "idempotency_records_expiry_idx")
+  @@index([submissionId], map: "idempotency_records_submission_idx")
+  @@map("idempotency_records")
+}
+
+enum RateLimitScope {
+  USER
+  USER_WRITE
+  API_KEY
+  INTEGRATION_IP
+}
+
+model RateLimitBucket {
+  scope         RateLimitScope
+  subjectDigest String         @map("subject_digest") @db.Text
+  windowStart   DateTime       @map("window_start") @db.Timestamptz(3)
+  expiresAt     DateTime       @map("expires_at") @db.Timestamptz(3)
+  count         BigInt         @default(0)
+
+  @@id([scope, subjectDigest, windowStart])
+  @@index([expiresAt], map: "rate_limit_buckets_expiry_idx")
+  @@map("rate_limit_buckets")
 }

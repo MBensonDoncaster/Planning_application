@@ -16,7 +16,7 @@ The GitHub workflow runs these same commands for feature/test pushes and PRs tar
 
 ## Database checks on the host
 
-Create a disposable PostgreSQL database ending in `_test` with a role allowed to create/drop schemas and deploy migrations. Never use an application database.
+Create a disposable PostgreSQL database ending in `_test` with a test operator allowed to create/drop schemas, deploy migrations, create/drop temporary test roles and SET ROLE for permission checks. The synthetic PostgreSQL operator in the Docker test stack supplies these permissions. Never use an application database or production runtime credentials.
 
 ```powershell
 $env:TEST_DATABASE_URL = 'postgresql://planning_test:synthetic-test-only@localhost:5432/planning_test'
@@ -26,6 +26,8 @@ npm.cmd run test:database
 This command requires its input and fails instead of silently skipping database tests. Each suite creates a unique `planning_test_<random hex>` schema, runs **the complete committed Prisma migration chain**, connects Prisma with that schema and removes it afterward. Failed migration setup also removes its schema. Caller-supplied schema/search-path overrides are rejected. Tests exercise profile refresh, approval metadata, concurrent last-admin protection, migration repeatability, parallel schema isolation and seed idempotency. Adding a committed migration automatically includes it in these checks.
 
 Set `REQUIRE_TEST_DATABASE=1` when using `npm run verify` if database skips must be treated as failures. Do not share the same test database across concurrent complete CI runs: the final cleanup check deliberately detects any remaining generated test schemas.
+
+The focused database command discovers every `.integration.test.ts` file. Shared-storage tests also cover initial-schema upgrades with existing approved users, active-name/key uniqueness, digest/scope/expiry constraints, retained audit/replay IDs, concurrent PostgreSQL rate counters and the committed runtime grant script. A separate non-owner role (selected with SET ROLE on the test connection) proves audit INSERT/SELECT succeeds while UPDATE/DELETE/TRUNCATE, schema alteration and migration-table access fail. Generated schemas and temporary roles are removed; the complete CI command asserts both cleanups. Database login/TLS configuration remains a deployment check.
 
 ## Browser checks on the host
 
