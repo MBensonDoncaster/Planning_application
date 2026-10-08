@@ -1,5 +1,5 @@
 ARG NODE_IMAGE=node:24.21.0-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
-FROM ${NODE_IMAGE} AS build
+FROM ${NODE_IMAGE} AS dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -7,9 +7,23 @@ COPY apps/backend/package.json apps/backend/package.json
 COPY apps/frontend/package.json apps/frontend/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
 RUN npm ci
+
+FROM dependencies AS build
 COPY apps ./apps
 COPY packages ./packages
 RUN npm run build
+
+# Disposable checks use the pinned application toolchain and matching Chromium.
+FROM dependencies AS browser-dependencies
+RUN npx playwright install --with-deps chromium
+
+FROM browser-dependencies AS verification
+COPY --from=build /app/apps ./apps
+COPY --from=build /app/packages ./packages
+COPY eslint.config.js playwright.config.ts tsconfig.e2e.json ./
+COPY e2e ./e2e
+ENV NODE_ENV=test DEPLOYMENT_PROFILE=test AUTH_MODE=TEST_USER REQUIRE_TEST_DATABASE=1
+CMD ["npm", "run", "verify:ci"]
 
 # Run migrations and the explicit bootstrap command from this separate image.
 FROM build AS migrator

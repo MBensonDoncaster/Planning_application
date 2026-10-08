@@ -1,0 +1,88 @@
+{
+  "metadata": {
+    "id": "SYNTHETIC-001",
+    "submittedAt": "2026-09-01T10:00:00.000Z",
+    "organisation": "Example Planning Authority",
+    "source": "PlanX"
+  },
+  "data": {
+    "property": {
+      "address": {
+        "singleLine": "Example Field, Example Road, Example Town",
+        "postcode": "AB1 2CD",
+        "uprn": "100000000001",
+        "usrn": "10000001",
+        "latitude": 51.5,
+        "longitude": -0.1,
+        "town": "Example Town",
+        "street": "Example Road"
+      },
+      "ward": "Example Ward",
+      "localAuthorityDistrict": ["Example District"],
+      "region": "Example Region",
+      "type": {
+        "value": "land",
+        "description": "Undeveloped land"
+      },
+      "planning": {
+        "designations": [
+          {
+            "value": "example_designation",
+            "description": "Synthetic designation for mapping verification",
+            "intersects": false,
+            "entities": []
+          }
+        ]
+      },
+      "boundary": {
+        "site": {
+          "type": "Polygon",
+          "coordinates": [[[-0.102, 51.498], [-0.098, 51.498], [-0.098, 51.502], [-0.102, 51.502], [-0.102, 51.498]]]
+        }
+      }
+    },
+    "proposal": {
+      "description": "Example site for housing",
+      "projectType": ["housing"],
+      "boundary": {
+        "site": {
+          "type": "Feature",
+          "properties": {"exampleOnly": true},
+          "geometry": {
+            "type": "Polygon",
+            "coordinates": [[[-0.101, 51.499], [-0.099, 51.499], [-0.099, 51.501], [-0.101, 51.501], [-0.101, 51.499]]]
+          }
+        }
+      }
+    }
+  },
+  "responses": [
+    {
+      "question": "What is the site name?",
+      "metadata": {"id": "oIOYDlVlbm"},
+      "responses": [{"value": "Example Field"}]
+    },
+    {
+      "question": "What uses are proposed?",
+      "metadata": {"id": "use.proposed"},
+      "responses": [{"value": "Housing, Open space"}]
+    },
+    {
+      "question": "Is there public highway access?",
+      "metadata": {"id": "ERacz5TYhW"},
+      "responses": [{"value": "Yes"}]
+    },
+    {
+      "question": "Additional comments",
+      "metadata": {"id": "synthetic.additional"},
+      "responses": [{"value": "Synthetic example only; not a real submission."}]
+    }
+  ],
+  "preAssessment": [
+    {"value": "example", "description": "Imported assessment text, not calculated by the portal"}
+  ],
+  "exampleExtension": {
+    "purpose": "Verify preservation of unknown fields",
+    "synthetic": true
+  }
+}

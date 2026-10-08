@@ -90,7 +90,7 @@ The `@planning/contracts` workspace supplies shared API error DTOs, module route
 npm.cmd run verify
 ```
 
-This generates Prisma types, checks TypeScript, runs tests, lints and builds both applications. Unit/API tests use an in-memory repository and locally signed JWTs; they do not need Entra credentials or a database. Database integration tests use an explicitly supplied isolated test database; see [testing](docs/testing.md).
+This generates Prisma types, checks TypeScript, runs tests, lints and builds both applications. Unit/API tests use an in-memory repository and locally signed JWTs; they do not need Entra credentials or a database. For full PostgreSQL migration/integration and Chromium checks, run `docker compose -p planning-verification -f compose.test.yaml up --build --abort-on-container-exit --exit-code-from verify`, then remove the temporary stack with `docker compose -p planning-verification -f compose.test.yaml down --remove-orphans`. The same checks run in CI without production secrets. See [testing](docs/testing.md) for focused commands, the synthetic fixture and guarded test-user seeding.
 
 Check dependency security with `npm.cmd run audit:security` (requires access to the npm registry). The root package overrides Prisma's `deepmerge-ts` and `mysql2` dependencies to patched versions. Keep these overrides until Prisma supplies patched versions itself. After any dependency refresh, inspect the lockfile and run the security audit and `npm.cmd run verify`; npm workspace updates can ignore overrides and select vulnerable versions. Use `npm.cmd ci` to install the reviewed lockfile. A passing audit covers known npm advisories at the time of the check; container base images need separate updates and scanning.
 

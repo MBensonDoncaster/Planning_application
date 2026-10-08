@@ -15,7 +15,7 @@
   "scripts": {
     "dev:backend": "npm run build:contracts && npm run dev --workspace=@planning/backend",
     "dev:frontend": "npm run build:contracts && npm run dev --workspace=@planning/frontend",
-    "typecheck": "npm run build:contracts && npm run prisma:generate --workspace=@planning/backend && npm run typecheck --workspaces",
+    "typecheck": "npm run build:contracts && npm run prisma:generate --workspace=@planning/backend && npm run typecheck --workspaces && tsc -p tsconfig.e2e.json",
     "test": "npm run build:contracts && npm run prisma:generate --workspace=@planning/backend && npm run test --workspace=@planning/backend && npm run test --workspace=@planning/frontend",
     "lint": "eslint .",
     "build": "npm run build:contracts && npm run build --workspace=@planning/frontend && npm run build --workspace=@planning/backend",
@@ -25,13 +25,18 @@
     "migrate:deploy": "npm run prisma:migrate:deploy --workspace=@planning/backend",
     "admin:bootstrap": "npm run admin:bootstrap --workspace=@planning/backend --",
     "start": "npm start --workspace=@planning/backend",
-    "build:contracts": "npm run build --workspace=@planning/contracts"
+    "build:contracts": "npm run build --workspace=@planning/contracts",
+    "test:database": "npm run build:contracts && npm run prisma:generate --workspace=@planning/backend && npm run test:database --workspace=@planning/backend",
+    "test:browser": "npm run build && playwright test",
+    "verify:ci": "npm run verify && playwright test && tsx apps/backend/test/check-cleanup.ts",
+    "seed:synthetic": "npm run prisma:generate --workspace=@planning/backend && npm run seed:synthetic --workspace=@planning/backend"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
+    "@playwright/test": "1.64.0",
     "eslint": "10.12.0",
-    "typescript-eslint": "8.71.1",
-    "globals": "16.5.0"
+    "globals": "16.5.0",
+    "typescript-eslint": "8.71.1"
   },
   "overrides": {
     "@prisma/config": {

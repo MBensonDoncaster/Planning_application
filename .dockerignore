@@ -10,3 +10,5 @@ coverage
 .npm-cache
 API_Creation_Documentation
 docs/ai_specs
+playwright-report
+test-results

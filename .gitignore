@@ -9,3 +9,5 @@ apps/backend/src/generated/
 *.tsbuildinfo
 .npm-cache/
 docs/ai_specs/
+playwright-report/
+test-results/
