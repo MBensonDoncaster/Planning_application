@@ -1,0 +1,106 @@
+# Reusable application template
+
+A small, deployment-agnostic starter: React, Material UI and TypeScript in the browser; a Fastify API; and PostgreSQL accessed through Prisma. Frontend and API share one origin in the container. Node.js 24 and npm 11 are required for host development.
+
+The only application table is `users`. Prisma also maintains its own migration-history table. There are no example business features, uploads or cloud-provider dependencies.
+
+## Included behaviour
+
+- Microsoft Entra SSO using a single tenant in Microsoft's public cloud.
+- First successful authenticated API request creates a `USER` / `PENDING` account, keyed by `entra:<tenant-id>:<object-id>`. Later requests refresh profile details without replacing the local role or status.
+- Pending accounts see an awaiting-approval screen. Rejected and disabled accounts see an explanation. None can use protected application functions.
+- Approved users land on a basic homepage. Approved administrators also get **Admin · Users** at `/admin/users`.
+- User administration supports search, status filtering, pagination, approval, rejection, role assignment, disabling and reopening access requests. Reopening a rejected or disabled account returns it to `PENDING`; an administrator must approve it again.
+- Approval records the administrator and timestamp. Role assignment is separate from approval. Entra directory roles do not grant local permissions.
+- The API checks local role and status on every protected request. Database transactions serialize administrative changes so concurrent requests cannot disable or demote the last approved administrator.
+- Liveness (`/health`), database readiness (`/health/ready`), request IDs, JSON logs, token redaction, security headers and request limits.
+
+## Quick start: local containers
+
+This explicit development override bypasses SSO for one local identity. Both the application and database ports are bound to localhost. Do not expose this mode to a shared network.
+
+```powershell
+Copy-Item .env.example .env
+docker compose -f compose.yaml -f compose.dev.yaml up --build -d
+```
+
+Open `http://localhost:3000`. This registers `local:developer` as pending. After that first visit, bootstrap the administrator:
+
+```powershell
+docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate npm run admin:bootstrap -- local:developer
+```
+
+Click **Refresh access**. You will see the homepage and the admin users page. The bootstrap command only works before any approved administrator exists.
+
+Stop with `docker compose -f compose.yaml -f compose.dev.yaml down`. The database volume persists. Use a unique `COMPOSE_PROJECT_NAME` for each copied template so applications do not share a volume.
+
+## Host development
+
+```powershell
+Copy-Item .env.example .env
+Copy-Item apps/backend/.env.example apps/backend/.env
+docker compose up -d --wait postgres
+npm.cmd ci
+npm.cmd run migrate:deploy
+npm.cmd run dev:backend
+```
+
+In a second terminal, run `npm.cmd run dev:frontend` and open `http://localhost:5173`. Vite proxies API and health requests to port 3000. On macOS/Linux, use `npm` instead of `npm.cmd` and `cp` instead of `Copy-Item`.
+
+Visit the application once, then run `npm.cmd run admin:bootstrap -- local:developer` in another terminal. Refresh access in the browser. Local mode always uses the configured test identity; use real Entra SSO to test multiple identities.
+
+The backend reads `apps/backend/.env` because root npm scripts execute in that workspace. Root `.env` is for Docker Compose. The database URL in the backend example uses `localhost`; the root example uses the Compose service name `postgres`. If changing database credentials or ports, update both URLs. URL-encode reserved characters in passwords. Changing PostgreSQL variables does not change credentials in an already initialized volume.
+
+## Configure Entra SSO
+
+See [Entra setup](docs/entra.md). Supply your own tenant, SPA registration, API registration and delegated scope. Switch `AUTH_MODE` to `ENTRA` for host development. The standard container configuration always uses `ENTRA`; production rejects `TEST_USER` and non-HTTPS public origins.
+
+Configuration comes from the server at runtime, so the same built image can be promoted through environments without rebuilding browser assets. No secrets are sent to the browser.
+
+| Variable | Purpose |
+| --- | --- |
+| `APP_NAME` | Application title and welcome text |
+| `APP_ORIGIN` | Exact browser origin, without path or trailing slash; also the SPA redirect/logout URI |
+| `DATABASE_URL` | PostgreSQL connection URL; runtime and migration jobs can use different roles |
+| `AUTH_MODE` | `ENTRA`, or local-only `TEST_USER` |
+| `ENTRA_TENANT_ID` | Single tenant UUID |
+| `ENTRA_API_CLIENT_ID` | API application UUID; validated token audience |
+| `ENTRA_SPA_CLIENT_ID` | Browser application UUID; permitted calling application |
+| `ENTRA_SCOPE` | Full delegated scope: `api://<API-client-id>/access_as_user` |
+| `HOST`, `PORT` | Listener address and port; containers default to `0.0.0.0:3000` |
+| `LOG_LEVEL` | Log verbosity; defaults to `info` |
+| `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_MS` | Per-process, per-client-IP request limit; defaults to 200 per minute |
+| `TRUST_PROXY` | Defaults to `false`; enable only behind a controlled proxy that replaces forwarded headers |
+| `SERVE_FRONTEND` | Defaults to enabled in production; use `true` for the container development override |
+| `FRONTEND_DIST_DIR` | Optional absolute path for compiled frontend assets |
+| `TEST_USER_SUBJECT`, `TEST_USER_EMAIL`, `TEST_USER_NAME` | Identity used only in explicit local development mode |
+
+## Checks and schema changes
+
+```powershell
+npm.cmd run verify
+```
+
+This generates Prisma types, checks TypeScript, runs tests, lints and builds both applications. Unit/API tests use an in-memory repository and locally signed JWTs; they do not need Entra credentials or a database. Database integration tests use an explicitly supplied isolated test database; see [testing](docs/testing.md).
+
+Check dependency security with `npm.cmd run audit:security` (requires access to the npm registry). The root package overrides Prisma's `deepmerge-ts` and `mysql2` dependencies to patched versions. Keep these overrides until Prisma supplies patched versions itself. After any dependency refresh, inspect the lockfile and run the security audit and `npm.cmd run verify`; npm workspace updates can ignore overrides and select vulnerable versions. Use `npm.cmd ci` to install the reviewed lockfile. A passing audit covers known npm advisories at the time of the check; container base images need separate updates and scanning.
+
+The [initial committed migration](apps/backend/prisma/migrations/20261008000000_initial_users/migration.sql) defines the user table. Apply committed migrations using `npm.cmd run migrate:deploy`; inspect them using `npm.cmd run migrate:status`. For a deliberate schema change, edit `apps/backend/prisma/schema.prisma`, then run:
+
+```powershell
+npm.cmd run prisma:migrate:dev --workspace=@template/backend -- --name describe_change
+```
+
+Commit both the schema and migration SQL. Never run development migrations or `db push` against production.
+
+## Reuse and deployment
+
+Copy this repository, rename the root and workspace packages (including `@template` script references), set a unique Compose project/database name, and regenerate the lockfile after package changes. Set `APP_NAME` and your own Entra values. Add future features under `apps/frontend/src/features` and `apps/backend/src/modules`; keep HTTP calls behind the shared browser client and protect new API routes on the server.
+
+The shared visual theme is defined in `apps/frontend/src/theme.ts`: charcoal navigation, a teal divider, magenta gradient page banners and white cards on a warm background. The header places the bundled council logo beside the primary navigation; it is implemented in `apps/frontend/src/components/AppHeader.tsx`, with the logo in `apps/frontend/public/branding/`. Reuse `PageBanner` for new page headings and change the shared theme tokens and branding assets to rebrand a copied template. Reference screenshots remain local in the ignored source-documentation folder; the application does not require them at runtime.
+
+To apply this design to an existing application, use [the standalone theme bundle](theme-bundle/README.md), also packaged as `exports/doncaster-theme.zip`. It includes configurable React/Material UI components, scoped CSS for other frameworks, the logo, integration examples and previews.
+
+[Deployment instructions](docs/deployment.md) describe the runtime and migration image targets, external PostgreSQL, HTTPS entry points, administrator bootstrap, backups and rollback. The runtime image can run on any host or service that supports Linux OCI containers and network access to PostgreSQL and Microsoft Entra.
+
+The original specification and user workflow notes are kept locally in `API_Creation_Documentation/`, which is excluded from Git and Docker builds. This README and `docs/` contain the maintained documentation for this template's implemented, provider-independent behaviour.

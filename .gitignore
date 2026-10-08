@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+apps/backend/src/generated/
+*.log
+*.tsbuildinfo
+.npm-cache/
+AI_Creation_Documentation/

@@ -1,0 +1,95 @@
+/* Framework-neutral version. All selectors are scoped to dc-* classes. */
+.dc-theme {
+  --dc-magenta: #981b69;
+  --dc-plum: #6e124e;
+  --dc-teal: #008b84;
+  --dc-canvas: #f4f1eb;
+  --dc-text: #243746;
+  --dc-muted: #697582;
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: var(--dc-canvas);
+  color: var(--dc-text);
+  font: 14px/1.5 Arial, Helvetica, sans-serif;
+}
+.dc-theme *, .dc-theme *::before, .dc-theme *::after { box-sizing: border-box; }
+.dc-header {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr) auto;
+  grid-template-areas: "brand navigation account";
+  align-items: center;
+  background: #333;
+  color: #fff;
+  border-bottom: 3px solid var(--dc-teal);
+}
+.dc-brand {
+  grid-area: brand;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  width: 232px;
+  max-width: 100%;
+  min-height: 104px;
+  padding: 12px 40px 12px 20px;
+  background: #505251;
+  clip-path: polygon(0 0, 100% 0, calc(100% - 26px) 100%, 0 100%);
+}
+.dc-brand img { display: block; width: 100%; height: auto; }
+.dc-nav { grid-area: navigation; display: flex; gap: 1px; min-width: 0; overflow-x: auto; }
+.dc-nav a, .dc-nav button {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  min-height: 48px;
+  padding: 12px 16px 8px;
+  border: 0;
+  border-bottom: 4px solid transparent;
+  border-radius: 0;
+  background: #464646;
+  color: #fff;
+  font: 600 13px Arial, Helvetica, sans-serif;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.dc-nav [aria-current="page"], .dc-nav .active { background: #505050; border-bottom-color: #bcbcbc; }
+.dc-nav a:hover, .dc-nav button:hover { background: #575757; }
+.dc-header a:focus-visible, .dc-header button:focus-visible { outline: 2px solid #fff; outline-offset: -4px; }
+.dc-account { grid-area: account; display: flex; align-items: center; gap: 12px; padding: 12px 24px; }
+.dc-avatar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; background: #525252; font-size: 12px; }
+.dc-account-name { font-weight: 600; }
+.dc-main { padding: 28px 20px; }
+.dc-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px;
+  margin-bottom: 24px;
+  background: linear-gradient(110deg, var(--dc-magenta), var(--dc-plum));
+  color: #fff;
+}
+.dc-banner h1 { margin: 0 0 6px; font-size: 24px; line-height: 1.25; }
+.dc-banner p { margin: 0; font-size: 13px; }
+.dc-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; padding: 0 24px; }
+.dc-card { padding: 24px; border-radius: 12px; background: #fff; box-shadow: 0 3px 14px rgb(35 28 21 / 5.5%); }
+.dc-card--accent { border-left: 4px solid var(--dc-magenta); }
+.dc-card--top { border-top: 4px solid var(--dc-magenta); }
+.dc-card h2 { margin: 0 0 16px; color: var(--dc-magenta); font-size: 16px; }
+.dc-card p { margin: 0 0 16px; }
+.dc-button { display: inline-flex; align-items: center; justify-content: center; min-height: 34px; padding: 8px 16px; border: 1px solid var(--dc-magenta); border-radius: 4px; background: var(--dc-magenta); color: #fff; font: 600 14px Arial, Helvetica, sans-serif; text-decoration: none; cursor: pointer; }
+.dc-button:hover { background: var(--dc-plum); }
+.dc-button:focus-visible { outline: 3px solid var(--dc-teal); outline-offset: 3px; }
+.dc-banner .dc-button { background: transparent; border-color: #fff; color: #fff; font-size: 12px; }
+.dc-banner .dc-button:hover { background: rgb(255 255 255 / 10%); }
+@media (max-width: 1199px) { .dc-account-name { display: none; } }
+@media (max-width: 899px) {
+  .dc-header { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "brand account" "navigation navigation"; }
+  .dc-brand { width: 190px; min-height: 88px; padding: 12px 32px 12px 16px; }
+  .dc-nav { padding: 0 16px 12px; }
+  .dc-account { padding: 12px 16px; }
+  .dc-main { padding: 28px 16px; }
+  .dc-banner { align-items: flex-start; flex-direction: column; padding: 20px; }
+  .dc-grid { grid-template-columns: 1fr; padding: 0; }
+}

@@ -1,0 +1,117 @@
+import Fastify from 'fastify';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
+import staticFiles from '@fastify/static';
+import { fileURLToPath } from 'node:url';
+import { z, ZodError } from 'zod';
+import type { Config } from './config/env.js';
+import type { User, UserRepository } from './modules/users/types.js';
+import { AppError, requireAdmin, requireApproved } from './modules/users/service.js';
+import { createIdentityVerifier, type VerifyIdentity } from './plugins/auth.js';
+
+declare module 'fastify' {
+  interface FastifyRequest { user: User | null }
+}
+
+const changeSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('role'), role: z.enum(['USER', 'ADMIN']) }).strict(),
+  ...(['approve', 'reject', 'disable', 'enable'] as const).map(action => z.object({ action: z.literal(action) }).strict()),
+]);
+
+export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity) {
+  const app = Fastify({
+    trustProxy: config.TRUST_PROXY === 'true',
+    bodyLimit: 16_384,
+    logger: config.NODE_ENV === 'test' ? false : {
+      level: config.LOG_LEVEL,
+      redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+    },
+  });
+  app.decorateRequest('user', null);
+  await app.register(helmet, {
+    contentSecurityPolicy: { directives: {
+      defaultSrc: ["'self'"], scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      connectSrc: ["'self'", 'https://login.microsoftonline.com'],
+      frameSrc: ['https://login.microsoftonline.com'],
+      imgSrc: ["'self'", 'data:'], objectSrc: ["'none'"],
+      // Local HTTP remains usable; deployed entry points must terminate TLS.
+      upgradeInsecureRequests: config.NODE_ENV === 'production' ? [] : null,
+    } },
+  });
+  await app.register(rateLimit, { max: config.RATE_LIMIT_MAX, timeWindow: config.RATE_LIMIT_WINDOW_MS });
+  app.addHook('onRequest', async (request, reply) => {
+    reply.header('X-Request-Id', request.id);
+    if (request.url.startsWith('/api/') || request.url.startsWith('/health')) reply.header('Cache-Control', 'no-store');
+  });
+  app.setErrorHandler((error, request, reply) => {
+    if (error instanceof ZodError) return reply.code(400).send({ code: 'VALIDATION_ERROR', message: 'Invalid request.', requestId: request.id });
+    if (error instanceof AppError) return reply.code(error.statusCode).send({ code: error.code, message: error.message, requestId: request.id });
+    const candidate = error as { statusCode?: unknown; message?: unknown } | null;
+    const status = typeof candidate?.statusCode === 'number' && candidate.statusCode >= 400 && candidate.statusCode < 500 ? candidate.statusCode : 500;
+    if (status === 500) request.log.error({ err: error }, 'Request failed');
+    return reply.code(status).send({ code: status === 500 ? 'INTERNAL_ERROR' : 'REQUEST_ERROR', message: status === 500 ? 'The request could not be completed.' : typeof candidate?.message === 'string' ? candidate.message : 'Invalid request.', requestId: request.id });
+  });
+  app.get('/health', async () => ({ status: 'ok' }));
+  app.get('/health/ready', async (_request, reply) => {
+    try { await users.ready(); return { status: 'ready' }; }
+    catch { return reply.code(503).send({ status: 'unavailable' }); }
+  });
+  app.get('/api/v1/auth/config', async () => ({
+    appName: config.APP_NAME, mode: config.AUTH_MODE,
+    ...(config.AUTH_MODE === 'ENTRA' ? {
+      tenantId: config.ENTRA_TENANT_ID, clientId: config.ENTRA_SPA_CLIENT_ID,
+      scope: config.ENTRA_SCOPE, redirectUri: config.APP_ORIGIN,
+    } : {}),
+  }));
+  const verify = config.AUTH_MODE === 'ENTRA' ? verifier ?? createIdentityVerifier(config) : undefined;
+  await app.register(async protectedRoutes => {
+    protectedRoutes.addHook('preHandler', async request => {
+      if (config.AUTH_MODE === 'TEST_USER') {
+        request.user = await users.authenticate({ subject: config.TEST_USER_SUBJECT, email: config.TEST_USER_EMAIL, displayName: config.TEST_USER_NAME });
+      } else {
+        const authorization = request.headers.authorization;
+        if (!authorization || !/^Bearer \S+$/i.test(authorization)) throw new AppError(401, 'SIGN_IN_REQUIRED', 'Sign in to continue.');
+        request.user = await users.authenticate(await verify!(authorization.slice(7)));
+      }
+    });
+    protectedRoutes.get('/api/v1/auth/me', async request => request.user!);
+    protectedRoutes.get('/api/v1/home', async request => {
+      requireApproved(request.user!);
+      return { message: `Welcome to ${config.APP_NAME}` };
+    });
+    await protectedRoutes.register(async admin => {
+      admin.addHook('preHandler', async request => { requireAdmin(request.user!); });
+      admin.get('/api/v1/admin/users', async request => {
+        const query = z.object({
+          page: z.coerce.number().int().min(1).max(100_000).default(1),
+          pageSize: z.coerce.number().int().min(1).max(100).default(20),
+          search: z.string().max(200).default(''),
+          status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'DISABLED']).optional(),
+        }).strict().parse(request.query);
+        return { ...await users.list(query), page: query.page, pageSize: query.pageSize };
+      });
+      admin.patch('/api/v1/admin/users/:id', async request => {
+        const { id } = z.object({ id: z.uuid() }).parse(request.params);
+        const change = changeSchema.parse(request.body);
+        const updated = await users.change(request.user!.id, id, change);
+        request.log.info({ actorId: request.user!.id, targetId: id, action: change.action, role: updated.role, status: updated.status }, 'User access changed');
+        return updated;
+      });
+    });
+  });
+  if (config.SERVE_FRONTEND === 'true' || (config.SERVE_FRONTEND !== 'false' && config.NODE_ENV === 'production')) {
+    const root = config.FRONTEND_DIST_DIR ?? fileURLToPath(new URL('../../frontend/dist/', import.meta.url));
+    await app.register(staticFiles, { root });
+    app.setNotFoundHandler(async (request, reply) => {
+      const pathname = request.url.split('?')[0];
+      if (request.method !== 'GET' || /^\/(api|health)(\/|$)/.test(pathname) || pathname.includes('.') || !request.headers.accept?.includes('text/html')) {
+        return reply.code(404).send({ code: 'NOT_FOUND', message: 'Not found.' });
+      }
+      reply.header('Cache-Control', 'no-store');
+      return reply.sendFile('index.html');
+    });
+  }
+  app.addHook('onClose', async () => { await users.close(); });
+  return app;
+}
