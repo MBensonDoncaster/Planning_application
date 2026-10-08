@@ -10,7 +10,7 @@ export const ROLE_CAPABILITIES: Record<'USER' | 'ADMIN', readonly Capability[]> 
 };
 
 export interface ModuleRoute {
-  id: 'browse' | 'search' | 'record' | 'upload' | 'paste' | 'delete';
+  id: 'browse' | 'search' | 'record' | 'upload' | 'delete';
   path: string;
   label: string;
   description: string;
@@ -36,7 +36,6 @@ export const CALL_FOR_SITES_MODULE = {
     { id: 'search', path: '/call-for-sites/search', label: 'Search submissions', description: 'Find submissions by text and date received.', capability: 'call-for-sites.search' },
     { id: 'record', path: '/call-for-sites/records/:id', label: 'Submission details', description: 'Review a Call for Sites submission.', capability: 'call-for-sites.read' },
     { id: 'upload', path: '/call-for-sites/upload', label: 'Upload files', description: 'Submit JSON files or ZIP archives.', capability: 'call-for-sites.submit' },
-    { id: 'paste', path: '/call-for-sites/paste', label: 'Paste JSON', description: 'Submit a JSON object.', capability: 'call-for-sites.submit' },
     { id: 'delete', path: '/call-for-sites/delete', label: 'Delete a submission', description: 'Look up a submission for permanent deletion.', capability: 'call-for-sites.delete' },
   ],
 } as const satisfies ModuleDefinition;

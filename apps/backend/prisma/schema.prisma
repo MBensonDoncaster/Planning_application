@@ -95,7 +95,6 @@ enum AuditOutcome {
 enum IngestionChannel {
   FILE_JSON
   FILE_ZIP
-  PASTE
   INTEGRATION_API
 }
 

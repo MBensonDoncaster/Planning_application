@@ -9,7 +9,7 @@ Shared storage now includes `users`, `integrations`, `api_keys`, `audit_events`,
 - Microsoft Entra SSO using a single tenant in Microsoft's public cloud.
 - First successful authenticated API request creates a `USER` / `PENDING` account, keyed by `entra:<tenant-id>:<object-id>`. Later requests refresh profile details without replacing the local role or status.
 - Pending accounts see an awaiting-approval screen. Rejected and disabled accounts see an explanation. None can use protected application functions.
-- Approved users land on Call for Sites at `/call-for-sites`. Browse, search, details, upload, paste and administrator deletion routes currently display a shell while their workflows are implemented. Approved administrators also get user administration at `/admin/users`, plus the confirmed integrations and audit route shells.
+- Approved users land on Call for Sites at `/call-for-sites`. Browse, search, details, file upload and administrator deletion routes currently display a shell while their workflows are implemented. Approved administrators also get user administration at `/admin/users`, plus the confirmed integrations and audit route shells.
 - User administration supports search, status filtering, pagination, approval, rejection, role assignment, disabling and reopening access requests. Reopening a rejected or disabled account returns it to `PENDING`; an administrator must approve it again.
 - Approval records the administrator and timestamp. Role assignment is separate from approval. Entra directory roles do not grant local permissions.
 - The API checks local role and status on every protected request. Database transactions serialize administrative changes so concurrent requests cannot disable or demote the last approved administrator.

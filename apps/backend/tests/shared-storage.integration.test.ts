@@ -86,6 +86,43 @@ describe.skipIf(!testUrl)('shared PostgreSQL storage and runtime privileges', ()
     } finally { await upgraded.cleanup(); }
   }, 60_000);
 
+  it('removes the paste channel without losing audit history and rejects legacy paste rows safely', async () => {
+    const ids = Array.from({ length: 4 }, () => randomUUID());
+    const upgraded = await createTestDatabase(testUrl, async url => {
+      const connection = new URL(url);
+      const schema = connection.searchParams.get('schema')!;
+      connection.searchParams.delete('schema'); connection.searchParams.set('options', `-c search_path=${schema}`);
+      const pool = new Pool({ connectionString: connection.toString() });
+      const previous = ['20261008000000_initial_users', '20261008010000_shared_storage'];
+      try {
+        for (const migration of previous) {
+          await pool.query(await readFile(new URL(`../prisma/migrations/${migration}/migration.sql`, import.meta.url), 'utf8'));
+        }
+        for (const [index, channel] of ['FILE_JSON', 'FILE_ZIP', 'INTEGRATION_API', null].entries()) {
+          await pool.query('INSERT INTO audit_events(id,request_id,actor_type,module,action,outcome,channel) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+            [ids[index], 'synthetic-request', 'SYSTEM', 'call-for-sites', 'TEST', 'SUCCESS', channel]);
+        }
+        const legacyId = randomUUID();
+        await pool.query('INSERT INTO audit_events(id,request_id,actor_type,module,action,outcome,channel) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+          [legacyId, 'synthetic-legacy', 'SYSTEM', 'call-for-sites', 'TEST', 'SUCCESS', 'PASTE']);
+        const migration = await readFile(new URL('../prisma/migrations/20261008020000_remove_paste_channel/migration.sql', import.meta.url), 'utf8');
+        await expect(pool.query(migration)).rejects.toThrow('Cannot remove PASTE channel');
+        await pool.query('ROLLBACK');
+        expect((await pool.query('SELECT channel FROM audit_events WHERE id=$1', [legacyId])).rows[0].channel).toBe('PASTE');
+        // Remove only this test's synthetic legacy row before testing the supported upgrade.
+        await pool.query('DELETE FROM audit_events WHERE id=$1', [legacyId]);
+      } finally { await pool.end(); }
+      for (const migration of previous) await runPrismaMigration(url, ['migrate', 'resolve', '--applied', migration]);
+      await deployMigrations(url);
+    });
+    try {
+      const rows = await upgraded.pool.query('SELECT id, channel FROM audit_events');
+      expect(rows.rows).toEqual(expect.arrayContaining(ids.map((id, index) => ({ id, channel: ['FILE_JSON', 'FILE_ZIP', 'INTEGRATION_API', null][index] }))));
+      expect(rows.rowCount).toBe(4);
+      await expect(upgraded.pool.query('UPDATE audit_events SET channel=$1 WHERE id=$2', ['PASTE', ids[0]])).rejects.toMatchObject({ code: '22P02' });
+    } finally { await upgraded.cleanup(); }
+  }, 60_000);
+
   it('requires unique active integration names and allows retained disabled names', async () => {
     const original = await integration();
     await expect(integration()).rejects.toMatchObject({ code: 'P2002' });
