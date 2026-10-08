@@ -4,6 +4,7 @@
   "type": "module",
   "version": "0.1.0",
   "workspaces": [
+    "packages/contracts",
     "apps/backend",
     "apps/frontend"
   ],
@@ -12,18 +13,19 @@
     "npm": ">=11 <12"
   },
   "scripts": {
-    "dev:backend": "npm run dev --workspace=@planning/backend",
-    "dev:frontend": "npm run dev --workspace=@planning/frontend",
-    "typecheck": "npm run prisma:generate --workspace=@planning/backend && npm run typecheck --workspaces",
-    "test": "npm run prisma:generate --workspace=@planning/backend && npm run test --workspaces",
+    "dev:backend": "npm run build:contracts && npm run dev --workspace=@planning/backend",
+    "dev:frontend": "npm run build:contracts && npm run dev --workspace=@planning/frontend",
+    "typecheck": "npm run build:contracts && npm run prisma:generate --workspace=@planning/backend && npm run typecheck --workspaces",
+    "test": "npm run build:contracts && npm run prisma:generate --workspace=@planning/backend && npm run test --workspace=@planning/backend && npm run test --workspace=@planning/frontend",
     "lint": "eslint .",
-    "build": "npm run build --workspace=@planning/frontend && npm run build --workspace=@planning/backend",
+    "build": "npm run build:contracts && npm run build --workspace=@planning/frontend && npm run build --workspace=@planning/backend",
     "verify": "npm run typecheck && npm test && npm run lint && npm run build",
     "audit:security": "npm audit",
     "migrate:status": "npm run prisma:migrate:status --workspace=@planning/backend",
     "migrate:deploy": "npm run prisma:migrate:deploy --workspace=@planning/backend",
     "admin:bootstrap": "npm run admin:bootstrap --workspace=@planning/backend --",
-    "start": "npm start --workspace=@planning/backend"
+    "start": "npm start --workspace=@planning/backend",
+    "build:contracts": "npm run build --workspace=@planning/contracts"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

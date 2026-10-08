@@ -77,6 +77,8 @@ Configuration comes from the server at runtime, so the same built image can be p
 
 ## Checks and schema changes
 
+The `@planning/contracts` workspace supplies shared API error DTOs. Root build, test, typecheck and development commands build it before starting the application workspaces; `npm.cmd run build:contracts` also builds it independently.
+
 ```powershell
 npm.cmd run verify
 ```

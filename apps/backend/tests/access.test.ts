@@ -73,7 +73,7 @@ describe('server-side access control', () => {
     for (const payload of [{ action: 'disable' }, { action: 'role', role: 'USER' }]) {
       const result = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${user.id}`, payload });
       expect(result.statusCode).toBe(409);
-      expect(result.json().code).toBe('LAST_ADMIN');
+      expect(result.json().error.code).toBe('LAST_APPROVED_ADMIN');
     }
   });
   it('uses the current database status on subsequent requests', async () => {

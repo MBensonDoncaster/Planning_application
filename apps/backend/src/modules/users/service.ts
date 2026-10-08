@@ -1,16 +1,14 @@
 import type { User, UserChange } from './types.js';
-
-export class AppError extends Error {
-  constructor(public statusCode: number, public code: string, message: string) { super(message); }
-}
+import { AppError } from '../../shared/errors.js';
+export { AppError } from '../../shared/errors.js';
 
 export function requireApproved(user: User): void {
-  if (user.status !== 'APPROVED') throw new AppError(403, 'ACCESS_NOT_APPROVED', 'Your account does not have approved access.');
+  if (user.status !== 'APPROVED') throw new AppError(403, user.status === 'DISABLED' ? 'USER_DISABLED' : 'USER_NOT_APPROVED', 'Your account does not have approved access.');
 }
 
 export function requireAdmin(user: User): void {
   requireApproved(user);
-  if (user.role !== 'ADMIN') throw new AppError(403, 'ADMIN_REQUIRED', 'Administrator access is required.');
+  if (user.role !== 'ADMIN') throw new AppError(403, 'FORBIDDEN', 'Administrator access is required.');
 }
 
 export function applyChange(target: User, change: UserChange, approvedAdmins: number, actorId: string): Partial<User> {
@@ -38,7 +36,7 @@ export function applyChange(target: User, change: UserChange, approvedAdmins: nu
   }
   if (target.role === 'ADMIN' && target.status === 'APPROVED' && approvedAdmins <= 1 &&
       ((patch.role !== undefined && patch.role !== 'ADMIN') || (patch.status !== undefined && patch.status !== 'APPROVED'))) {
-    throw new AppError(409, 'LAST_ADMIN', 'The last approved administrator cannot be disabled or demoted.');
+    throw new AppError(409, 'LAST_APPROVED_ADMIN', 'The last approved administrator cannot be disabled or demoted.');
   }
   return patch;
 }

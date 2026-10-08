@@ -3,7 +3,7 @@ import {
   Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Paper,
   Stack, Table, TableBody, TableCell, TableContainer, TableHead, TablePagination, TableRow, TextField, Typography,
 } from '@mui/material';
-import { ApiError, request } from '../api';
+import { ApiError, errorMessage, request } from '../api';
 import type { Role, Status, User, UserChange } from '../types';
 import { PageBanner } from '../components/PageBanner';
 import { ThemeIcon } from '../components/ThemeIcon';
@@ -27,7 +27,7 @@ export function UserAdmin({ currentUser, refreshAccess }: { currentUser: User; r
   const [confirmation, setConfirmation] = useState<{ change: UserChange; label: string }>();
   const [saving, setSaving] = useState(false);
   const accessError = useCallback((e: unknown) => {
-    setError(e instanceof Error ? e.message : 'Unable to manage users.');
+    setError(errorMessage(e, 'Unable to manage users.'));
     if (e instanceof ApiError && (e.status === 401 || e.status === 403)) void refreshAccess();
   }, [refreshAccess]);
   useEffect(() => {
