@@ -9,7 +9,7 @@ The only application table is `users`. Prisma also maintains its own migration-h
 - Microsoft Entra SSO using a single tenant in Microsoft's public cloud.
 - First successful authenticated API request creates a `USER` / `PENDING` account, keyed by `entra:<tenant-id>:<object-id>`. Later requests refresh profile details without replacing the local role or status.
 - Pending accounts see an awaiting-approval screen. Rejected and disabled accounts see an explanation. None can use protected application functions.
-- Approved users land on a basic homepage. Approved administrators also get **Admin · Users** at `/admin/users`.
+- Approved users land on Call for Sites at `/call-for-sites`. Browse, search, details, upload, paste and administrator deletion routes currently display a shell while their workflows are implemented. Approved administrators also get user administration at `/admin/users`, plus the confirmed integrations and audit route shells.
 - User administration supports search, status filtering, pagination, approval, rejection, role assignment, disabling and reopening access requests. Reopening a rejected or disabled account returns it to `PENDING`; an administrator must approve it again.
 - Approval records the administrator and timestamp. Role assignment is separate from approval. Entra directory roles do not grant local permissions.
 - The API checks local role and status on every protected request. Database transactions serialize administrative changes so concurrent requests cannot disable or demote the last approved administrator.
@@ -30,7 +30,7 @@ Open `http://localhost:3000`. This registers `local:developer` as pending. After
 docker compose -f compose.yaml -f compose.dev.yaml run --rm migrate npm run admin:bootstrap -- local:developer
 ```
 
-Click **Refresh access**. You will see the homepage and the admin users page. The bootstrap command only works before any approved administrator exists.
+Click **Refresh access**. You will see the Call for Sites shell and the admin users page. The bootstrap command only works before any approved administrator exists.
 
 Stop with `docker compose -f compose.yaml -f compose.dev.yaml down`. The database volume persists. Use a unique `COMPOSE_PROJECT_NAME` for each copied template so applications do not share a volume.
 
@@ -63,21 +63,28 @@ Configuration comes from the server at runtime, so the same built image can be p
 | `APP_ORIGIN` | Exact browser origin, without path or trailing slash; also the SPA redirect/logout URI |
 | `DATABASE_URL` | PostgreSQL connection URL; runtime and migration jobs can use different roles |
 | `AUTH_MODE` | `ENTRA`, or local-only `TEST_USER` |
+| `DEPLOYMENT_PROFILE` | `local`, `test`, `staging` or `production`; staging/production require Entra and HTTPS, regardless of `NODE_ENV` |
 | `ENTRA_TENANT_ID` | Single tenant UUID |
 | `ENTRA_API_CLIENT_ID` | API application UUID; validated token audience |
 | `ENTRA_SPA_CLIENT_ID` | Browser application UUID; permitted calling application |
 | `ENTRA_SCOPE` | Full delegated scope: `api://<API-client-id>/access_as_user` |
 | `HOST`, `PORT` | Listener address and port; containers default to `0.0.0.0:3000` |
 | `LOG_LEVEL` | Log verbosity; defaults to `info` |
-| `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_MS` | Per-process, per-client-IP request limit; defaults to 200 per minute |
+| `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_MS` | Per-process, per-client-IP request limit; defaults to 120 per minute |
 | `TRUST_PROXY` | Defaults to `false`; enable only behind a controlled proxy that replaces forwarded headers |
-| `SERVE_FRONTEND` | Defaults to enabled in production; use `true` for the container development override |
+| `SERVE_FRONTEND` | Defaults to enabled in deployed staging/production profiles; use `true` for the container development override |
 | `FRONTEND_DIST_DIR` | Optional absolute path for compiled frontend assets |
 | `TEST_USER_SUBJECT`, `TEST_USER_EMAIL`, `TEST_USER_NAME` | Identity used only in explicit local development mode |
 
+Approved users fetch `/api/v1/app/config` for the Call for Sites registry, public limits and business timezone. Unapproved accounts cannot fetch it. Browser assets contain no environment-specific hostnames or Entra IDs. Local TEST_USER mode requires a localhost application origin.
+
+Runtime processing settings are listed in both server `.env.example` files and injected by Compose. Defaults are 10 MiB decoded request bodies, 5 MiB selected files, 1,000 ZIP entries, JSON depth 100, 100,000 geometry positions, 500 export selections, 100 MiB export output, 30-second generation and 120-second browser download deadlines. `BUSINESS_TIMEZONE` defaults to `Europe/London`; invalid IANA zones fail startup. Export selections cannot exceed 500. Key expiry defaults to 90 days with a maximum of 365; idempotency retention defaults to 30 days. Positive integer settings and deadline/expiry relationships are validated at startup.
+
+The request-body limit is enforced now. ZIP, geometry, export, key and idempotency settings will be enforced by their respective workflows as they are implemented. Actor rate budgets default to 120 human reads, 30 human writes, 30 requests per integration key and 120 integration requests per IP each minute; shared enforcement is a later implementation task. The existing generic limiter remains per-process.
+
 ## Checks and schema changes
 
-The `@planning/contracts` workspace supplies shared API error DTOs. Root build, test, typecheck and development commands build it before starting the application workspaces; `npm.cmd run build:contracts` also builds it independently.
+The `@planning/contracts` workspace supplies shared API error DTOs, module routes, capabilities and public configuration types. Root build, test, typecheck and development commands build it before starting the application workspaces; `npm.cmd run build:contracts` also builds it independently.
 
 ```powershell
 npm.cmd run verify

@@ -3,11 +3,13 @@ services:
   app:
     environment:
       NODE_ENV: development
+      DEPLOYMENT_PROFILE: local
       AUTH_MODE: TEST_USER
       APP_ORIGIN: http://localhost:3000
       SERVE_FRONTEND: "true"
   migrate:
     environment:
       NODE_ENV: development
+      DEPLOYMENT_PROFILE: local
       AUTH_MODE: TEST_USER
       APP_ORIGIN: http://localhost:3000

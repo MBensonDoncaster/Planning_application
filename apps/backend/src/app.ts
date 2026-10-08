@@ -9,6 +9,8 @@ import type { User, UserRepository } from './modules/users/types.js';
 import { AppError, requireAdmin, requireApproved } from './modules/users/service.js';
 import { createIdentityVerifier, type VerifyIdentity } from './plugins/auth.js';
 import { installErrorHandler } from './plugins/errors.js';
+import { isDeployed } from './config/env.js';
+import { publicAppConfig } from './config/public.js';
 
 declare module 'fastify' {
   interface FastifyRequest { user: User | null }
@@ -22,7 +24,7 @@ const changeSchema = z.discriminatedUnion('action', [
 export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity) {
   const app = Fastify({
     trustProxy: config.TRUST_PROXY === 'true',
-    bodyLimit: 16_384,
+    bodyLimit: config.INGESTION_MAX_BODY_BYTES,
     logger: config.NODE_ENV === 'test' ? false : {
       level: config.LOG_LEVEL,
       redact: ['req.headers.authorization', 'req.headers["x-api-key"]', 'req.headers.cookie', 'res.headers["set-cookie"]'],
@@ -38,7 +40,7 @@ export async function createApp(config: Config, users: UserRepository, verifier?
       frameSrc: ['https://login.microsoftonline.com'],
       imgSrc: ["'self'", 'data:'], objectSrc: ["'none'"],
       // Local HTTP remains usable; deployed entry points must terminate TLS.
-      upgradeInsecureRequests: config.NODE_ENV === 'production' ? [] : null,
+      upgradeInsecureRequests: isDeployed(config) ? [] : null,
     } },
   });
   await app.register(rateLimit, { max: config.RATE_LIMIT_MAX, timeWindow: config.RATE_LIMIT_WINDOW_MS });
@@ -73,6 +75,10 @@ export async function createApp(config: Config, users: UserRepository, verifier?
       }
     });
     protectedRoutes.get('/api/v1/auth/me', async request => request.user!);
+    protectedRoutes.get('/api/v1/app/config', async request => {
+      requireApproved(request.user!);
+      return publicAppConfig(config);
+    });
     protectedRoutes.get('/api/v1/home', async request => {
       requireApproved(request.user!);
       return { message: `Welcome to ${config.APP_NAME}` };
@@ -97,7 +103,7 @@ export async function createApp(config: Config, users: UserRepository, verifier?
       });
     });
   });
-  if (config.SERVE_FRONTEND === 'true' || (config.SERVE_FRONTEND !== 'false' && config.NODE_ENV === 'production')) {
+  if (config.SERVE_FRONTEND === 'true' || (config.SERVE_FRONTEND !== 'false' && isDeployed(config))) {
     const root = config.FRONTEND_DIST_DIR ?? fileURLToPath(new URL('../../frontend/dist/', import.meta.url));
     await app.register(staticFiles, { root });
     app.setNotFoundHandler(async (request, reply) => {

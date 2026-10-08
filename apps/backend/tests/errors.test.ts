@@ -90,7 +90,7 @@ describe('shared HTTP error contract', () => {
   });
 
   it('normalises parser size, media type and content encoding failures', async () => {
-    const app = await start();
+    const app = await start(repository(), { INGESTION_MAX_BODY_BYTES: 16_384 });
     const url = `/api/v1/admin/users/${randomUUID()}`;
     expectError(await app.inject({ method: 'PATCH', url, headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ text: 'a'.repeat(16_384) }) }), 413, 'PAYLOAD_TOO_LARGE');
     expectError(await app.inject({ method: 'PATCH', url, headers: { 'content-type': 'application/xml' }, payload: '<secret/>' }), 415, 'UNSUPPORTED_MEDIA_TYPE');
