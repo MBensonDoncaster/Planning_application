@@ -3,11 +3,12 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import staticFiles from '@fastify/static';
 import { fileURLToPath } from 'node:url';
-import { z, ZodError } from 'zod';
+import { z } from 'zod';
 import type { Config } from './config/env.js';
 import type { User, UserRepository } from './modules/users/types.js';
 import { AppError, requireAdmin, requireApproved } from './modules/users/service.js';
 import { createIdentityVerifier, type VerifyIdentity } from './plugins/auth.js';
+import { installErrorHandler } from './plugins/errors.js';
 
 declare module 'fastify' {
   interface FastifyRequest { user: User | null }
@@ -24,10 +25,11 @@ export async function createApp(config: Config, users: UserRepository, verifier?
     bodyLimit: 16_384,
     logger: config.NODE_ENV === 'test' ? false : {
       level: config.LOG_LEVEL,
-      redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
+      redact: ['req.headers.authorization', 'req.headers["x-api-key"]', 'req.headers.cookie', 'res.headers["set-cookie"]'],
     },
   });
   app.decorateRequest('user', null);
+  installErrorHandler(app);
   await app.register(helmet, {
     contentSecurityPolicy: { directives: {
       defaultSrc: ["'self'"], scriptSrc: ["'self'"],
@@ -43,19 +45,14 @@ export async function createApp(config: Config, users: UserRepository, verifier?
   app.addHook('onRequest', async (request, reply) => {
     reply.header('X-Request-Id', request.id);
     if (request.url.startsWith('/api/') || request.url.startsWith('/health')) reply.header('Cache-Control', 'no-store');
-  });
-  app.setErrorHandler((error, request, reply) => {
-    if (error instanceof ZodError) return reply.code(400).send({ code: 'VALIDATION_ERROR', message: 'Invalid request.', requestId: request.id });
-    if (error instanceof AppError) return reply.code(error.statusCode).send({ code: error.code, message: error.message, requestId: request.id });
-    const candidate = error as { statusCode?: unknown; message?: unknown } | null;
-    const status = typeof candidate?.statusCode === 'number' && candidate.statusCode >= 400 && candidate.statusCode < 500 ? candidate.statusCode : 500;
-    if (status === 500) request.log.error({ err: error }, 'Request failed');
-    return reply.code(status).send({ code: status === 500 ? 'INTERNAL_ERROR' : 'REQUEST_ERROR', message: status === 500 ? 'The request could not be completed.' : typeof candidate?.message === 'string' ? candidate.message : 'Invalid request.', requestId: request.id });
+    if (request.headers['content-encoding'] !== undefined && request.headers['content-encoding'] !== 'identity') {
+      throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Compressed request bodies are not supported.');
+    }
   });
   app.get('/health', async () => ({ status: 'ok' }));
-  app.get('/health/ready', async (_request, reply) => {
+  app.get('/health/ready', async () => {
     try { await users.ready(); return { status: 'ready' }; }
-    catch { return reply.code(503).send({ status: 'unavailable' }); }
+    catch { throw new AppError(503, 'SERVICE_UNAVAILABLE', 'The service is temporarily unavailable. Try again later.'); }
   });
   app.get('/api/v1/auth/config', async () => ({
     appName: config.APP_NAME, mode: config.AUTH_MODE,
@@ -71,7 +68,7 @@ export async function createApp(config: Config, users: UserRepository, verifier?
         request.user = await users.authenticate({ subject: config.TEST_USER_SUBJECT, email: config.TEST_USER_EMAIL, displayName: config.TEST_USER_NAME });
       } else {
         const authorization = request.headers.authorization;
-        if (!authorization || !/^Bearer \S+$/i.test(authorization)) throw new AppError(401, 'SIGN_IN_REQUIRED', 'Sign in to continue.');
+        if (!authorization || !/^Bearer \S+$/i.test(authorization)) throw new AppError(401, 'AUTHENTICATION_REQUIRED', 'Sign in to continue.');
         request.user = await users.authenticate(await verify!(authorization.slice(7)));
       }
     });
@@ -106,11 +103,13 @@ export async function createApp(config: Config, users: UserRepository, verifier?
     app.setNotFoundHandler(async (request, reply) => {
       const pathname = request.url.split('?')[0];
       if (request.method !== 'GET' || /^\/(api|health)(\/|$)/.test(pathname) || pathname.includes('.') || !request.headers.accept?.includes('text/html')) {
-        return reply.code(404).send({ code: 'NOT_FOUND', message: 'Not found.' });
+        throw new AppError(404, 'NOT_FOUND', 'Not found.');
       }
       reply.header('Cache-Control', 'no-store');
       return reply.sendFile('index.html');
     });
+  } else {
+    app.setNotFoundHandler(async () => { throw new AppError(404, 'NOT_FOUND', 'Not found.'); });
   }
   app.addHook('onClose', async () => { await users.close(); });
   return app;

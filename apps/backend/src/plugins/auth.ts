@@ -11,7 +11,7 @@ export function identityFromClaims(payload: JWTPayload, config: Config): Identit
       typeof payload.oid !== 'string' || !/^[0-9a-f-]{36}$/i.test(payload.oid) ||
       payload.azp !== config.ENTRA_SPA_CLIENT_ID ||
       typeof payload.scp !== 'string' || !payload.scp.split(' ').includes(scope)) {
-    throw new AppError(401, 'INVALID_TOKEN', 'The access token is not valid for this application.');
+    throw new AppError(401, 'INVALID_CREDENTIALS', 'The access token is not valid for this application.');
   }
   const email = typeof payload.email === 'string' ? payload.email :
     typeof payload.preferred_username === 'string' ? payload.preferred_username : '';
@@ -29,7 +29,7 @@ export function createIdentityVerifier(config: Config, keys: JWTVerifyGetKey = c
       });
       return identityFromClaims(payload, config);
     } catch {
-      throw new AppError(401, 'INVALID_TOKEN', 'Sign in again to obtain a valid access token.');
+      throw new AppError(401, 'INVALID_CREDENTIALS', 'Sign in again to obtain a valid access token.');
     }
   };
 }

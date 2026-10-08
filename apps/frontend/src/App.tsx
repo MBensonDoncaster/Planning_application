@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, Route, Routes } from 'react-router-dom';
 import { Alert, Box, Button, Chip, CircularProgress, Container, Paper, Stack, Typography } from '@mui/material';
-import { ApiError, hasSession, initializeAuth, request, signIn, signOut } from './api';
+import { ApiError, errorMessage, hasSession, initializeAuth, request, signIn, signOut } from './api';
 import type { AuthConfig, User } from './types';
 import { AccessScreen } from './features/AccessScreen';
 import { UserAdmin } from './features/UserAdmin';
@@ -20,14 +20,14 @@ export function App() {
     try { setUser(await request<User>('/auth/me')); }
     catch (e) {
       if (e instanceof ApiError && e.status === 401) setUser(undefined);
-      setError(e instanceof Error ? e.message : 'Unable to load your account.');
+      setError(errorMessage(e, 'Unable to load your account.'));
     }
   }, []);
   useEffect(() => {
     void initializeAuth().then(async c => {
       setConfig(c); document.title = c.appName;
       if (hasSession()) await refresh();
-    }).catch(e => setError(e instanceof Error ? e.message : 'Unable to initialize sign-in.')).finally(() => setLoading(false));
+    }).catch(e => setError(errorMessage(e, 'Unable to initialize sign-in.'))).finally(() => setLoading(false));
   }, [refresh]);
   // Refresh approval/role while the page stays open; API remains authoritative.
   useEffect(() => {
@@ -37,7 +37,7 @@ export function App() {
     window.addEventListener('focus', onFocus);
     return () => { window.clearInterval(timer); window.removeEventListener('focus', onFocus); };
   }, [Boolean(user), refresh]);
-  const run = (action: () => Promise<void>) => { void action().catch(e => setError(e instanceof Error ? e.message : 'Sign-in failed.')); };
+  const run = (action: () => Promise<void>) => { void action().catch(e => setError(errorMessage(e, 'Sign-in failed.'))); };
   if (loading) return <Box sx={{ display: 'grid', placeItems: 'center', minHeight: '100vh' }}><CircularProgress aria-label="Loading application" /></Box>;
   return <>
     <AppHeader user={user} canSignOut={config?.mode === 'ENTRA'} onSignOut={() => run(signOut)} />
@@ -62,7 +62,7 @@ export function App() {
 function Home({ user, appName, refresh }: { user: User; appName: string; refresh: () => Promise<void> }) {
   const [error, setError] = useState('');
   useEffect(() => { void request('/home').catch(e => {
-    setError(e instanceof Error ? e.message : 'Unable to load the homepage.');
+    setError(errorMessage(e, 'Unable to load the homepage.'));
     if (e instanceof ApiError && (e.status === 401 || e.status === 403)) void refresh();
   }); }, [refresh]);
   return <Stack spacing={3}>

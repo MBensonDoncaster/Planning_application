@@ -37,7 +37,7 @@ export function createUserRepository(db: PrismaClient): UserRepository {
         // This lock adds no tables and also coordinates with the bootstrap tool.
         await tx.$executeRaw`LOCK TABLE "users" IN SHARE ROW EXCLUSIVE MODE`;
         const actor = await tx.user.findUnique({ where: { id: actorId } });
-        if (!actor) throw new AppError(403, 'ADMIN_REQUIRED', 'Administrator access is required.');
+        if (!actor) throw new AppError(403, 'FORBIDDEN', 'Administrator access is required.');
         requireAdmin(toUser(actor));
         const target = await tx.user.findUnique({ where: { id: targetId } });
         if (!target) throw new AppError(404, 'USER_NOT_FOUND', 'User not found.');

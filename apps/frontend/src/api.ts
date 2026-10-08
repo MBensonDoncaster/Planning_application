@@ -1,9 +1,7 @@
 import type { PublicClientApplication } from '@azure/msal-browser';
 import type { AuthConfig } from './types';
-
-export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string) { super(message); }
-}
+import { ApiError, errorFromResponse, isAbortError } from './shared/api-errors';
+export { ApiError, errorMessage } from './shared/api-errors';
 
 let client: PublicClientApplication | undefined;
 let config: AuthConfig;
@@ -36,7 +34,7 @@ export async function signOut() { await client?.logoutRedirect({ account: client
 async function accessToken(): Promise<string | undefined> {
   if (!client) return undefined;
   const account = client.getActiveAccount();
-  if (!account) throw new ApiError(401, 'SIGN_IN_REQUIRED', 'Sign in to continue.');
+  if (!account) throw new ApiError(401, 'AUTHENTICATION_REQUIRED', 'Sign in to continue.');
   try {
     return (await client.acquireTokenSilent({ account, scopes: [config.scope!] })).accessToken;
   } catch (error) {
@@ -48,16 +46,27 @@ async function accessToken(): Promise<string | undefined> {
   }
 }
 
-export async function request<T>(path: string, options: { method?: string; body?: unknown; signal?: AbortSignal } = {}): Promise<T> {
+type RequestOptions = { method?: string; body?: unknown; signal?: AbortSignal };
+
+// JSON requests and future download requests share authentication and error parsing.
+export async function requestResponse(path: string, options: RequestOptions = {}): Promise<Response> {
   const token = path === '/auth/config' ? undefined : await accessToken();
   const response = await fetch(`/api/v1${path}`, {
     method: options.method ?? 'GET', signal: options.signal,
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.body ? { 'Content-Type': 'application/json' } : {}) },
-    ...(options.body ? { body: JSON.stringify(options.body) } : {}),
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
+    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
   });
   if (!response.ok) {
-    const error = await response.json().catch(() => ({})) as { code?: string; message?: string };
-    throw new ApiError(response.status, error.code ?? 'REQUEST_FAILED', error.message ?? 'The request could not be completed.');
+    throw await errorFromResponse(response);
   }
-  return response.json() as Promise<T>;
+  return response;
+}
+
+export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const response = await requestResponse(path, options);
+  try { return await response.json() as T; }
+  catch (error) {
+    if (isAbortError(error)) throw error;
+    throw new ApiError(response.status, 'REQUEST_FAILED', 'The response could not be read.', response.headers.get('X-Request-Id') || undefined);
+  }
 }

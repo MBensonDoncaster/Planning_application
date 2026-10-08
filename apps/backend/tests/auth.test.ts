@@ -48,7 +48,10 @@ describe('Entra token validation', () => {
     app = await createApp(config, repo, verify);
     expect((await app.inject('/api/v1/auth/config')).statusCode).toBe(200);
     expect((await app.inject('/api/v1/auth/me')).statusCode).toBe(401);
-    expect((await app.inject({ url: '/api/v1/auth/me', headers: { authorization: 'Bearer invalid' } })).statusCode).toBe(401);
+    const invalid = await app.inject({ url: '/api/v1/auth/me', headers: { authorization: 'Bearer invalid' } });
+    expect(invalid.statusCode).toBe(401);
+    expect(invalid.json().error.code).toBe('INVALID_CREDENTIALS');
+    expect(invalid.json().error.requestId).toBe(invalid.headers['x-request-id']);
     expect(creations).toBe(0);
   });
 });
