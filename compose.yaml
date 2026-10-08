@@ -2,8 +2,8 @@ x-app-environment: &app-environment
   NODE_ENV: production
   HOST: 0.0.0.0
   PORT: 3000
-  APP_NAME: ${APP_NAME:-Template App}
-  APP_ORIGIN: ${APP_ORIGIN:-https://template.example.com}
+  APP_NAME: ${APP_NAME:-Planning}
+  APP_ORIGIN: ${APP_ORIGIN:-https://planning.example.com}
   DATABASE_URL: ${DATABASE_URL:-postgresql://template:local-development-only@postgres:5432/template}
   AUTH_MODE: ENTRA
   ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}

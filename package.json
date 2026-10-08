@@ -1,5 +1,5 @@
 {
-  "name": "template-app",
+  "name": "planning-application",
   "private": true,
   "type": "module",
   "version": "0.1.0",
@@ -12,24 +12,24 @@
     "npm": ">=11 <12"
   },
   "scripts": {
-    "dev:backend": "npm run dev --workspace=@template/backend",
-    "dev:frontend": "npm run dev --workspace=@template/frontend",
-    "typecheck": "npm run prisma:generate --workspace=@template/backend && npm run typecheck --workspaces",
-    "test": "npm run prisma:generate --workspace=@template/backend && npm run test --workspaces",
+    "dev:backend": "npm run dev --workspace=@planning/backend",
+    "dev:frontend": "npm run dev --workspace=@planning/frontend",
+    "typecheck": "npm run prisma:generate --workspace=@planning/backend && npm run typecheck --workspaces",
+    "test": "npm run prisma:generate --workspace=@planning/backend && npm run test --workspaces",
     "lint": "eslint .",
-    "build": "npm run build --workspace=@template/frontend && npm run build --workspace=@template/backend",
+    "build": "npm run build --workspace=@planning/frontend && npm run build --workspace=@planning/backend",
     "verify": "npm run typecheck && npm test && npm run lint && npm run build",
     "audit:security": "npm audit",
-    "migrate:status": "npm run prisma:migrate:status --workspace=@template/backend",
-    "migrate:deploy": "npm run prisma:migrate:deploy --workspace=@template/backend",
-    "admin:bootstrap": "npm run admin:bootstrap --workspace=@template/backend --",
-    "start": "npm start --workspace=@template/backend"
+    "migrate:status": "npm run prisma:migrate:status --workspace=@planning/backend",
+    "migrate:deploy": "npm run prisma:migrate:deploy --workspace=@planning/backend",
+    "admin:bootstrap": "npm run admin:bootstrap --workspace=@planning/backend --",
+    "start": "npm start --workspace=@planning/backend"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.0",
-    "eslint": "^10.0.0",
-    "typescript-eslint": "^8.46.0",
-    "globals": "^16.4.0"
+    "@eslint/js": "10.0.1",
+    "eslint": "10.12.0",
+    "typescript-eslint": "8.71.1",
+    "globals": "16.5.0"
   },
   "overrides": {
     "@prisma/config": {
@@ -43,5 +43,6 @@
     "prisma@7.10.0": true,
     "@prisma/engines@7.10.0": true,
     "esbuild@0.28.2": true
-  }
+  },
+  "packageManager": "npm@11.19.0"
 }

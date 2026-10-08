@@ -5,7 +5,7 @@ const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: z.string().default('127.0.0.1'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-  APP_NAME: z.string().min(1).max(100).default('Template App'),
+  APP_NAME: z.string().min(1).max(100).default('Planning'),
   APP_ORIGIN: z.url().default('http://localhost:5173'),
   DATABASE_URL: z.string().regex(/^postgres(?:ql)?:\/\//),
   AUTH_MODE: z.enum(['TEST_USER', 'ENTRA']).default('ENTRA'),

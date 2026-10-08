@@ -8,4 +8,4 @@ apps/backend/src/generated/
 *.log
 *.tsbuildinfo
 .npm-cache/
-AI_Creation_Documentation/
+docs/ai_specs/

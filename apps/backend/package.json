@@ -1,5 +1,8 @@
 {
-  "name": "@template/backend", "version": "0.1.0", "private": true, "type": "module",
+  "name": "@planning/backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
@@ -13,12 +16,23 @@
     "admin:bootstrap": "tsx src/scripts/bootstrap-admin.ts"
   },
   "dependencies": {
-    "@fastify/helmet": "^13.1.2", "@fastify/rate-limit": "^10.3.0", "@fastify/static": "^10.1.5",
-    "@prisma/adapter-pg": "^7.0.0", "@prisma/client": "^7.0.0", "dotenv": "^17.2.0",
-    "fastify": "^5.6.0", "jose": "^6.1.0", "pg": "^8.16.0", "zod": "^4.1.0"
+    "@fastify/helmet": "13.1.2",
+    "@fastify/rate-limit": "10.3.0",
+    "@fastify/static": "10.1.5",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "dotenv": "17.4.2",
+    "fastify": "5.12.5",
+    "jose": "6.2.12",
+    "pg": "8.23.1",
+    "zod": "4.6.5"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0", "@types/pg": "^8.15.0", "prisma": "^7.0.0",
-    "tsx": "^4.20.0", "typescript": "~5.9.0", "vitest": "^5.0.3"
+    "@types/node": "24.19.1",
+    "@types/pg": "8.23.1",
+    "prisma": "7.10.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "5.0.3"
   }
 }
