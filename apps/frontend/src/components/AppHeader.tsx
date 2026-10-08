@@ -1,9 +1,11 @@
 import { Link, NavLink } from 'react-router-dom';
+import type { ModuleDefinition } from '@planning/contracts';
 import { Avatar, Box, Button, Stack, Typography } from '@mui/material';
 import type { User } from '../types';
 import { design } from '../theme';
+import { canAccess } from '../app/access';
 
-export function AppHeader({ user, canSignOut, onSignOut }: { user?: User; canSignOut: boolean; onSignOut: () => void }) {
+export function AppHeader({ user, modules = [], canSignOut, onSignOut }: { user?: User; modules?: readonly ModuleDefinition[]; canSignOut: boolean; onSignOut: () => void }) {
   return <Box component="header" sx={{
     bgcolor: '#333333', color: '#fff', borderBottom: `3px solid ${design.teal}`,
     display: 'grid', alignItems: 'center',
@@ -32,8 +34,8 @@ export function AppHeader({ user, canSignOut, onSignOut }: { user?: User; canSig
       },
     }}>
       {user?.status === 'APPROVED' ? <>
-        <Button component={NavLink} to="/" end>Home</Button>
-        {user.role === 'ADMIN' && <Button component={NavLink} to="/admin/users" aria-label="Admin · Users">Administration <Box component="span" sx={{ ml: 1, fontSize: 10 }}>▾</Box></Button>}
+        {modules.filter(module => module.routes.some(route => route.path === module.path && canAccess(user, route.capability))).map(module => <Button component={NavLink} key={module.id} to={module.path}>{module.label}</Button>)}
+        {canAccess(user, 'users.manage') && <Button component={NavLink} to="/admin">Administration <Box component="span" sx={{ ml: 1, fontSize: 10 }}>▾</Box></Button>}
       </> : <Typography variant="body2" sx={{ px: 2, color: '#fff' }}>Account access</Typography>}
     </Box>
     <Stack direction="row" spacing={1.5} alignItems="center" sx={{ gridArea: 'account', px: { xs: 2, md: 3 }, py: 1.5 }}>

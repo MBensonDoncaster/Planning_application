@@ -1,3 +1,5 @@
+export * from './application.js';
+
 export interface ErrorDetail {
   path: string;
   message: string;
