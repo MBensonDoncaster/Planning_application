@@ -2,7 +2,7 @@
 
 The Planning application starts from a provider-independent template: React, Material UI and TypeScript in the browser; a Fastify API; and PostgreSQL accessed through Prisma. Frontend and API share one origin in the container. Use Node.js 24.21.0 (`.nvmrc`) and npm 11.19.0 (`packageManager`) for host development, matching the pinned Docker image. The supported engine ranges remain Node.js 24 and npm 11.
 
-Shared storage now includes `users`, `integrations`, `api_keys`, `audit_events`, `idempotency_records` and `rate_limit_buckets`. Prisma also maintains its migration-history table. Transactional auditing covers the implemented session and user-access workflows. Integration/replay/throttling services and audit review are implemented in subsequent tasks; there are currently no business submission tables or cloud-provider dependencies.
+Shared storage now includes `users`, `integrations`, `api_keys`, `audit_events`, `idempotency_records` and `rate_limit_buckets`. Prisma also maintains its migration-history table. Transactional auditing covers session, user-access and integration/key administration. Integration administration APIs and key authentication services are available; the integration screen, submission endpoint, replay/throttling services and audit review follow in subsequent tasks. There are currently no business submission tables or cloud-provider dependencies.
 
 ## Included behaviour
 
@@ -15,6 +15,7 @@ Shared storage now includes `users`, `integrations`, `api_keys`, `audit_events`,
 - The API checks local role and status on every protected request. Database transactions serialize administrative changes so concurrent requests cannot disable or demote the last approved administrator.
 - Session synchronisation and user-access changes commit their audit records atomically with data changes. Protected reads record an audit before returning; an audit persistence failure blocks success with 503. Failed requests record a separate failure/denial event where possible and preserve the original error when audit storage is unavailable.
 - Concurrent first sign-ins create one pending account and one creation audit. Sign-ins, each access transition and controlled first-administrator bootstrap have distinct audit actions; bootstrap records its SYSTEM event in the same transaction as approval. Profile lengths are validated before storage.
+- Approved administrators can manage named integrations and submission-only API keys through the administration API. Create/rotate responses return a secret once with `no-store`; ordinary lists expose safe metadata and effective expiry/scopes. Rotation defaults to immediate revocation and permits an explicit overlap of up to 24 hours. Revocation and disablement take effect on the next key authentication.
 - Audit metadata uses action-specific safe fields. User searches record a hash/length rather than search text; profiles, request bodies and credentials are excluded. Automatic request logging is disabled to avoid retaining query strings and network sources; operational fallback logs contain safe action/status/request identifiers.
 - Liveness (`/health`), database readiness (`/health/ready`), request IDs, JSON logs, token redaction, security headers and request limits.
 

@@ -13,6 +13,12 @@ const operations = {
   'POST /api/v1/admin/users/:id/disable': { module: 'shared', action: 'USER_DISABLED' },
   'POST /api/v1/admin/users/:id/enable': { module: 'shared', action: 'USER_REOPENED' },
   'PATCH /api/v1/admin/users/:id/role': { module: 'shared', action: 'USER_ROLE_CHANGED' },
+  'GET /api/v1/admin/integrations': { module: 'shared', action: 'INTEGRATIONS_LIST' },
+  'POST /api/v1/admin/integrations': { module: 'shared', action: 'INTEGRATION_CREATED' },
+  'PATCH /api/v1/admin/integrations/:id': { module: 'shared', action: 'INTEGRATION_UPDATED' },
+  'POST /api/v1/admin/integrations/:id/keys': { module: 'shared', action: 'API_KEY_CREATED' },
+  'POST /api/v1/admin/api-keys/:id/rotate': { module: 'shared', action: 'API_KEY_ROTATED' },
+  'POST /api/v1/admin/api-keys/:id/revoke': { module: 'shared', action: 'API_KEY_REVOKED' },
 } as const;
 
 export function requestAuditEvent(request: FastifyRequest): AuditEventInput {
@@ -23,6 +29,11 @@ export function requestAuditEvent(request: FastifyRequest): AuditEventInput {
     const params = request.params as { id?: unknown } | undefined;
     const target = z.uuid().safeParse(params?.id);
     if (target.success) event.target = { type: 'user', id: target.data };
+  }
+  if (['INTEGRATION_UPDATED', 'API_KEY_CREATED', 'API_KEY_ROTATED', 'API_KEY_REVOKED'].includes(operation.action)) {
+    const params = request.params as { id?: unknown } | undefined;
+    const target = z.uuid().safeParse(params?.id);
+    if (target.success) event.target = { type: operation.action === 'INTEGRATION_UPDATED' || operation.action === 'API_KEY_CREATED' ? 'integration' : 'api-key', id: target.data };
   }
   return event;
 }

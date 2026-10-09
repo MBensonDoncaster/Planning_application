@@ -16,12 +16,14 @@ import { sessionForUser } from './shared/session.js';
 import { unavailableAuditService, type AuditService } from './shared/audit.js';
 import { auditRequestFailure, requestAuditEvent } from './plugins/audit.js';
 import { createHash } from 'node:crypto';
+import type { IntegrationService } from './modules/integrations/service.js';
+import { registerIntegrationRoutes } from './modules/integrations/routes.js';
 
 declare module 'fastify' {
   interface FastifyRequest { user: User | null; actor: Actor | null }
 }
 
-export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity, audit: AuditService = unavailableAuditService) {
+export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity, audit: AuditService = unavailableAuditService, integrations?: IntegrationService) {
   const app = Fastify({
     trustProxy: config.TRUST_PROXY === 'true',
     bodyLimit: config.INGESTION_MAX_BODY_BYTES,
@@ -123,6 +125,7 @@ export async function createApp(config: Config, users: UserRepository, verifier?
         return users.change(request.user!.id, id, { action: 'role', role }, { requestId: request.id });
       });
     });
+    if (integrations) await registerIntegrationRoutes(protectedRoutes, integrations);
   });
   if (config.SERVE_FRONTEND === 'true' || (config.SERVE_FRONTEND !== 'false' && isDeployed(config))) {
     const root = config.FRONTEND_DIST_DIR ?? fileURLToPath(new URL('../../frontend/dist/', import.meta.url));

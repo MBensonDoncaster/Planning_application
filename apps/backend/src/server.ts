@@ -3,11 +3,13 @@ import { createDatabase } from './database/prisma.js';
 import { createUserRepository } from './modules/users/repository.js';
 import { createApp } from './app.js';
 import { createAuditService } from './shared/audit.js';
+import { createIntegrationService } from './modules/integrations/service.js';
 
 const config = readConfig();
 const database = createDatabase(config.DATABASE_URL);
 const audit = createAuditService(database);
-const app = await createApp(config, createUserRepository(database, audit), undefined, audit);
+const integrations = createIntegrationService(database, config, audit);
+const app = await createApp(config, createUserRepository(database, audit), undefined, audit, integrations);
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, () => {
     const deadline = setTimeout(() => process.exit(1), 10_000);
