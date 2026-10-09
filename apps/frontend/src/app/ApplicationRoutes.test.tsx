@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
-import { MODULE_REGISTRY, type AppConfig } from '@planning/contracts';
+import { MODULE_REGISTRY, ROLE_CAPABILITIES, type AppConfig, type Capability } from '@planning/contracts';
 import { ApplicationRoutes } from './ApplicationRoutes';
 import { AppHeader } from '../components/AppHeader';
 import type { User } from '../types';
@@ -14,9 +14,9 @@ const config: AppConfig = { appName: 'Planning', businessTimezone: 'Europe/Londo
   exportGenerationTimeoutMs: 30000, exportDownloadTimeoutMs: 120000, idempotencyRetentionDays: 30,
   apiKeyDefaultExpiryDays: 90, apiKeyMaxExpiryDays: 365,
 } };
-function show(path: string, actor = user, settings: AppConfig | undefined = config) {
+function show(path: string, actor = user, settings: AppConfig | undefined = config, capabilities: readonly Capability[] = ROLE_CAPABILITIES[actor.role]) {
   const refresh = vi.fn().mockResolvedValue(undefined);
-  render(<MemoryRouter initialEntries={[path]}><ApplicationRoutes user={actor} config={settings} refreshAccess={refresh} /></MemoryRouter>);
+  render(<MemoryRouter initialEntries={[path]}><ApplicationRoutes user={actor} capabilities={capabilities} config={settings} refreshAccess={refresh} /></MemoryRouter>);
   return refresh;
 }
 describe('application routes and navigation', () => {
@@ -41,6 +41,18 @@ describe('application routes and navigation', () => {
     show(path);
     expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeVisible();
   });
+  it('denies an administrator a route whose capability the server withheld', async () => {
+    show('/admin/users', { ...user, role: 'ADMIN' }, config, ['call-for-sites.read']);
+    expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'User administration' })).not.toBeInTheDocument();
+  });
+  it('uses the server capability list for module links independently of the role', async () => {
+    show('/call-for-sites', { ...user, role: 'ADMIN' }, config, ['call-for-sites.read']);
+    expect(await screen.findByRole('heading', { name: 'Browse submissions' })).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Upload files' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Search submissions' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Delete a submission' })).not.toBeInTheDocument();
+  });
   it.each([
     ['PENDING', 'Awaiting administrator approval'], ['REJECTED', 'Access request declined'], ['DISABLED', 'Your account is disabled'],
   ] as const)('redirects %s administrators to their account screen', async (status, title) => {
@@ -58,13 +70,13 @@ describe('application routes and navigation', () => {
   });
   it('offers a retry when approved-user configuration failed to load', () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
-    render(<MemoryRouter><ApplicationRoutes user={user} refreshAccess={refresh} /></MemoryRouter>);
+    render(<MemoryRouter><ApplicationRoutes user={user} capabilities={[]} refreshAccess={refresh} /></MemoryRouter>);
     fireEvent.click(screen.getByRole('button', { name: 'Retry application' }));
     expect(refresh).toHaveBeenCalledOnce();
   });
   it.each(['APPROVED', 'PENDING'] as const)('keeps header links appropriate for %s status and preserves sign out', status => {
     const signOut = vi.fn();
-    render(<MemoryRouter><AppHeader user={{ ...user, role: 'ADMIN', status }} modules={MODULE_REGISTRY} canSignOut onSignOut={signOut} /></MemoryRouter>);
+    render(<MemoryRouter><AppHeader user={{ ...user, role: 'ADMIN', status }} capabilities={ROLE_CAPABILITIES.ADMIN} modules={MODULE_REGISTRY} canSignOut onSignOut={signOut} /></MemoryRouter>);
     const nav = within(screen.getByRole('navigation', { name: 'Main navigation' }));
     if (status === 'APPROVED') {
       expect(nav.getByRole('link', { name: 'Call for Sites' })).toHaveAttribute('href', '/call-for-sites');
@@ -72,5 +84,11 @@ describe('application routes and navigation', () => {
     } else expect(nav.queryByRole('link')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(signOut).toHaveBeenCalledOnce();
+  });
+  it('hides administrator navigation when the server returns no administrator capability', () => {
+    render(<MemoryRouter><AppHeader user={{ ...user, role: 'ADMIN' }} capabilities={['call-for-sites.read']} modules={MODULE_REGISTRY} canSignOut={false} onSignOut={vi.fn()} /></MemoryRouter>);
+    const nav = within(screen.getByRole('navigation', { name: 'Main navigation' }));
+    expect(nav.getByRole('link', { name: 'Call for Sites' })).toBeVisible();
+    expect(nav.queryByRole('link', { name: /Administration/ })).not.toBeInTheDocument();
   });
 });

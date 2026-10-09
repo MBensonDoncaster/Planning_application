@@ -5,15 +5,17 @@ import staticFiles from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import type { Config } from './config/env.js';
-import type { User, UserRepository } from './modules/users/types.js';
-import { AppError, requireAdmin, requireApproved } from './modules/users/service.js';
+import type { Identity, User, UserRepository } from './modules/users/types.js';
+import { AppError, requireApproved } from './modules/users/service.js';
 import { createIdentityVerifier, type VerifyIdentity } from './plugins/auth.js';
 import { installErrorHandler } from './plugins/errors.js';
 import { isDeployed } from './config/env.js';
 import { publicAppConfig } from './config/public.js';
+import { requireCapability, type Actor } from './shared/actors.js';
+import { sessionForUser } from './shared/session.js';
 
 declare module 'fastify' {
-  interface FastifyRequest { user: User | null }
+  interface FastifyRequest { user: User | null; actor: Actor | null }
 }
 
 const changeSchema = z.discriminatedUnion('action', [
@@ -31,6 +33,7 @@ export async function createApp(config: Config, users: UserRepository, verifier?
     },
   });
   app.decorateRequest('user', null);
+  app.decorateRequest('actor', null);
   installErrorHandler(app);
   await app.register(helmet, {
     contentSecurityPolicy: { directives: {
@@ -66,25 +69,32 @@ export async function createApp(config: Config, users: UserRepository, verifier?
   const verify = config.AUTH_MODE === 'ENTRA' ? verifier ?? createIdentityVerifier(config) : undefined;
   await app.register(async protectedRoutes => {
     protectedRoutes.addHook('preHandler', async request => {
+      let identity: Identity;
       if (config.AUTH_MODE === 'TEST_USER') {
-        request.user = await users.authenticate({ subject: config.TEST_USER_SUBJECT, email: config.TEST_USER_EMAIL, displayName: config.TEST_USER_NAME });
+        identity = { subject: config.TEST_USER_SUBJECT, email: config.TEST_USER_EMAIL, displayName: config.TEST_USER_NAME };
       } else {
         const authorization = request.headers.authorization;
         if (!authorization || !/^Bearer \S+$/i.test(authorization)) throw new AppError(401, 'AUTHENTICATION_REQUIRED', 'Sign in to continue.');
-        request.user = await users.authenticate(await verify!(authorization.slice(7)));
+        identity = await verify!(authorization.slice(7));
       }
+      // Every protected read consults current local access; only the session endpoint writes profile/login data.
+      request.user = request.routeOptions.url === '/api/v1/auth/me'
+        ? await users.authenticate(identity)
+        : await users.findBySubject(identity.subject);
+      if (!request.user) throw new AppError(403, 'USER_NOT_APPROVED', 'Your account does not have approved access.');
+      request.actor = { type: 'USER', user: request.user };
     });
-    protectedRoutes.get('/api/v1/auth/me', async request => request.user!);
+    protectedRoutes.get('/api/v1/auth/me', async request => sessionForUser(request.user!));
     protectedRoutes.get('/api/v1/app/config', async request => {
       requireApproved(request.user!);
       return publicAppConfig(config);
     });
     protectedRoutes.get('/api/v1/home', async request => {
-      requireApproved(request.user!);
+      requireCapability(request.actor, 'call-for-sites.read');
       return { message: `Welcome to ${config.APP_NAME}` };
     });
     await protectedRoutes.register(async admin => {
-      admin.addHook('preHandler', async request => { requireAdmin(request.user!); });
+      admin.addHook('preHandler', async request => { requireCapability(request.actor, 'users.manage'); });
       admin.get('/api/v1/admin/users', async request => {
         const query = z.object({
           page: z.coerce.number().int().min(1).max(100_000).default(1),

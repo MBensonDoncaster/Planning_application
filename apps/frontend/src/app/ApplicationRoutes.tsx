@@ -1,4 +1,4 @@
-import { ADMIN_ROUTES, type AppConfig, type ModuleDefinition, type ModuleRoute } from '@planning/contracts';
+import { ADMIN_ROUTES, type AppConfig, type Capability, type ModuleDefinition, type ModuleRoute } from '@planning/contracts';
 import { Alert, Button, Paper, Stack, Typography } from '@mui/material';
 import { Link, Navigate, NavLink, Route, Routes } from 'react-router-dom';
 import type { User } from '../types';
@@ -21,11 +21,11 @@ function FunctionShell({ title, description }: { title: string; description: str
   </Stack>;
 }
 
-function ModulePage({ module, route, user, timezone }: { module: ModuleDefinition; route: ModuleRoute; user: User; timezone: string }) {
-  if (!canAccess(user, route.capability)) return <AccessDenied />;
+function ModulePage({ module, route, user, capabilities, timezone }: { module: ModuleDefinition; route: ModuleRoute; user: User; capabilities: readonly Capability[]; timezone: string }) {
+  if (!canAccess(user, capabilities, route.capability)) return <AccessDenied />;
   return <Stack spacing={2}>
     <Stack component="nav" aria-label="Call for Sites navigation" direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-      {module.routes.filter(item => item.id !== 'record' && canAccess(user, item.capability)).map(item =>
+      {module.routes.filter(item => item.id !== 'record' && canAccess(user, capabilities, item.capability)).map(item =>
         <Button component={NavLink} key={item.id} to={item.path} end={item.id === 'browse'} sx={{ '&.active': { textDecoration: 'underline' } }}>{item.label}</Button>)}
     </Stack>
     <FunctionShell title={route.label} description={route.description} />
@@ -33,7 +33,7 @@ function ModulePage({ module, route, user, timezone }: { module: ModuleDefinitio
   </Stack>;
 }
 
-export function ApplicationRoutes({ user, config, refreshAccess }: { user: User; config?: AppConfig; refreshAccess: () => Promise<void> }) {
+export function ApplicationRoutes({ user, capabilities, config, refreshAccess }: { user: User; capabilities: readonly Capability[]; config?: AppConfig; refreshAccess: () => Promise<void> }) {
   if (user.status !== 'APPROVED') {
     return <Routes>
       <Route path="/access" element={<AccessScreen user={user} refresh={() => void refreshAccess()} />} />
@@ -46,18 +46,18 @@ export function ApplicationRoutes({ user, config, refreshAccess }: { user: User;
     <Route path="/" element={<Navigate to={landing} replace />} />
     <Route path="/access" element={<Navigate to={landing} replace />} />
     {config.enabledModules.flatMap(module => module.routes.map(route =>
-      <Route key={route.path} path={route.path} element={<ModulePage module={module} route={route} user={user} timezone={config.businessTimezone} />} />))}
-    <Route path="/admin" element={canAccess(user, 'users.manage') ? <Stack spacing={2}>
+      <Route key={route.path} path={route.path} element={<ModulePage module={module} route={route} user={user} capabilities={capabilities} timezone={config.businessTimezone} />} />))}
+    <Route path="/admin" element={canAccess(user, capabilities, 'users.manage') ? <Stack spacing={2}>
       <PageBanner title="Administration" description="Manage application access, integrations and audit." kind="users" />
-      {ADMIN_ROUTES.filter(route => canAccess(user, route.capability)).map(route =>
+      {ADMIN_ROUTES.filter(route => canAccess(user, capabilities, route.capability)).map(route =>
         <Paper key={route.path} variant="outlined" sx={{ p: 2 }}>
           <Button component={Link} to={route.path}>{route.label}</Button><Typography variant="body2">{route.description}</Typography>
         </Paper>)}
     </Stack> : <AccessDenied />} />
-    {ADMIN_ROUTES.map(route => <Route key={route.path} path={route.path} element={canAccess(user, route.capability) ?
+    {ADMIN_ROUTES.map(route => <Route key={route.path} path={route.path} element={canAccess(user, capabilities, route.capability) ?
       <Stack spacing={2}>
         <Stack component="nav" aria-label="Administration navigation" direction="row" spacing={1}>
-          {ADMIN_ROUTES.filter(item => canAccess(user, item.capability)).map(item => <Button component={NavLink} key={item.path} to={item.path} sx={{ '&.active': { textDecoration: 'underline' } }}>{item.label}</Button>)}
+          {ADMIN_ROUTES.filter(item => canAccess(user, capabilities, item.capability)).map(item => <Button component={NavLink} key={item.path} to={item.path} sx={{ '&.active': { textDecoration: 'underline' } }}>{item.label}</Button>)}
         </Stack>
         {route.path === '/admin/users' ? <UserAdmin currentUser={user} refreshAccess={refreshAccess} /> : <FunctionShell title={route.label} description={route.description} />}
       </Stack> : <AccessDenied />} />)}

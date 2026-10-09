@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ROLE_CAPABILITIES } from '@planning/contracts';
 
 test('approved synthetic admin navigates the shell and database-backed user administration', async ({ page }) => {
   await page.goto('/');
@@ -16,6 +17,9 @@ test('approved synthetic admin navigates the shell and database-backed user admi
 });
 
 test('database-backed APIs expose public configuration and safe JSON errors', async ({ request }) => {
+  const session = await request.get('/api/v1/auth/me');
+  expect(session.ok()).toBe(true);
+  expect(await session.json()).toMatchObject({ user: { role: 'ADMIN', status: 'APPROVED' }, capabilities: ROLE_CAPABILITIES.ADMIN });
   const response = await request.get('/api/v1/app/config');
   expect(response.ok()).toBe(true);
   expect((await response.json()).enabledModules.map((module: { id: string }) => module.id)).toEqual(['call-for-sites']);
@@ -29,7 +33,8 @@ for (const [status, title] of [['PENDING', 'Awaiting administrator approval'], [
     // Mock the session response only; backend permission states have separate HTTP/database tests.
     await page.route('**/api/v1/auth/me', async route => {
       const response = await route.fetch();
-      await route.fulfill({ response, json: { ...await response.json(), role: 'ADMIN', status } });
+      const session = await response.json();
+      await route.fulfill({ response, json: { ...session, user: { ...session.user, role: 'ADMIN', status }, capabilities: [] } });
     });
     await page.goto('/call-for-sites/delete');
     await expect(page).toHaveURL(/\/access$/);
@@ -41,7 +46,8 @@ for (const [status, title] of [['PENDING', 'Awaiting administrator approval'], [
 test('USER cannot reach administrator deletion through a direct URL', async ({ page }) => {
   await page.route('**/api/v1/auth/me', async route => {
     const response = await route.fetch();
-    await route.fulfill({ response, json: { ...await response.json(), role: 'USER' } });
+    const session = await response.json();
+    await route.fulfill({ response, json: { ...session, user: { ...session.user, role: 'USER' }, capabilities: ROLE_CAPABILITIES.USER } });
   });
   await page.goto('/call-for-sites/delete');
   await expect(page.getByRole('heading', { name: 'Access denied' })).toBeVisible();

@@ -52,6 +52,17 @@ describe.skipIf(!testUrl)('PostgreSQL repository integration', () => {
     const count = await database.pool.query(`SELECT COUNT(*)::int AS count FROM "users" WHERE role='ADMIN' AND status='APPROVED'`);
     expect(count.rows[0].count).toBe(1);
   });
+  it('looks up immutable subjects without changing profiles, login timestamps or access', async () => {
+    const user = await repository.authenticate({ subject: 'entra:read-only:object', email: 'reader@example.test', displayName: 'Reader' });
+    await database.pool.query(`UPDATE "users" SET role='ADMIN', status='APPROVED', approved_at=NOW() WHERE id=$1`, [user.id]);
+    const before = await database.pool.query('SELECT * FROM "users" WHERE id=$1', [user.id]);
+    expect(await repository.findBySubject(user.subject)).toMatchObject({ id: user.id, subject: user.subject, role: 'ADMIN', status: 'APPROVED' });
+    expect(await repository.findBySubject('entra:unknown:object')).toBeNull();
+    expect((await database.pool.query('SELECT * FROM "users" WHERE id=$1', [user.id])).rows).toEqual(before.rows);
+    expect((await database.pool.query('SELECT COUNT(*)::int AS count FROM "users"')).rows[0].count).toBe(1);
+    await database.pool.query(`UPDATE "users" SET status='DISABLED' WHERE id=$1`, [user.id]);
+    expect(await repository.findBySubject(user.subject)).toMatchObject({ status: 'DISABLED' });
+  });
   it('deploys the complete committed migration chain and safely repeats deploy', async () => {
     const directories = await readdir(new URL('../prisma/migrations/', import.meta.url), { withFileTypes: true });
     const expected = directories.filter(entry => entry.isDirectory()).map(entry => entry.name).sort();

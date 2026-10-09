@@ -31,6 +31,10 @@ export function createUserRepository(db: PrismaClient): UserRepository {
       ]);
       return { users: rows.map(toUser), total };
     },
+    async findBySubject(subject) {
+      const row = await db.user.findUnique({ where: { ssoSubject: subject } });
+      return row ? toUser(row) : null;
+    },
     async change(actorId: string, targetId: string, change: UserChange) {
       return db.$transaction(async (tx) => {
         // Serialize account administration, including simultaneous demotions.
