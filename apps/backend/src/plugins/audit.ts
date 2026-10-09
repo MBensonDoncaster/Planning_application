@@ -19,12 +19,14 @@ const operations = {
   'POST /api/v1/admin/integrations/:id/keys': { module: 'shared', action: 'API_KEY_CREATED' },
   'POST /api/v1/admin/api-keys/:id/rotate': { module: 'shared', action: 'API_KEY_ROTATED' },
   'POST /api/v1/admin/api-keys/:id/revoke': { module: 'shared', action: 'API_KEY_REVOKED' },
+  'POST /api/v1/integrations/call-for-sites/submissions': { module: 'call-for-sites', action: 'EXTERNAL_SUBMISSION' },
 } as const;
 
 export function requestAuditEvent(request: FastifyRequest): AuditEventInput {
   const key = `${request.method} ${request.routeOptions.url}`;
   const operation = operations[key as keyof typeof operations] ?? { module: 'shared', action: 'REQUEST_FAILED' };
   const event: AuditEventInput = { requestId: request.id, actor: request.actor, ...operation, outcome: 'SUCCESS' };
+  if (operation.action === 'EXTERNAL_SUBMISSION') event.channel = 'INTEGRATION_API';
   if (['USER_APPROVED', 'USER_REJECTED', 'USER_DISABLED', 'USER_REOPENED', 'USER_ROLE_CHANGED'].includes(operation.action)) {
     const params = request.params as { id?: unknown } | undefined;
     const target = z.uuid().safeParse(params?.id);
@@ -56,7 +58,7 @@ export async function auditRequestFailure(audit: AuditService, request: FastifyR
   if (!request.url.startsWith('/api/')) return;
   const event: AuditEventInput = {
     ...requestAuditEvent(request),
-    outcome: status === 401 || status === 403 || code === 'LAST_APPROVED_ADMIN' ? 'DENIED' : 'FAILURE',
+    outcome: status === 401 || status === 403 || code === 'LAST_APPROVED_ADMIN' || code === 'RATE_LIMITED' ? 'DENIED' : 'FAILURE',
     errorCode: safeAuditErrorCode(code),
     metadata: { statusCode: status },
   };

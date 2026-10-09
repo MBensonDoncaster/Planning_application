@@ -1,6 +1,7 @@
 import Fastify, { LogController } from 'fastify';
 import helmet from '@fastify/helmet';
-import rateLimit from '@fastify/rate-limit';
+import { createMemoryRateLimiter, unavailableRateLimiter, type RateLimiter } from './shared/rate-limits.js';
+import { consumeRequestBudget, registerExternalSubmissionRoute, type ExternalSubmissionHandler } from './plugins/external-auth.js';
 import staticFiles from '@fastify/static';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
@@ -23,7 +24,7 @@ declare module 'fastify' {
   interface FastifyRequest { user: User | null; actor: Actor | null }
 }
 
-export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity, audit: AuditService = unavailableAuditService, integrations?: IntegrationService) {
+export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity, audit: AuditService = unavailableAuditService, integrations?: IntegrationService, options: { rateLimiter?: RateLimiter; externalSubmission?: ExternalSubmissionHandler } = {}) {
   const app = Fastify({
     trustProxy: config.TRUST_PROXY === 'true',
     bodyLimit: config.INGESTION_MAX_BODY_BYTES,
@@ -47,11 +48,12 @@ export async function createApp(config: Config, users: UserRepository, verifier?
       upgradeInsecureRequests: isDeployed(config) ? [] : null,
     } },
   });
-  await app.register(rateLimit, { max: config.RATE_LIMIT_MAX, timeWindow: config.RATE_LIMIT_WINDOW_MS });
+  const limiter = options.rateLimiter ?? (config.NODE_ENV === 'test' ? createMemoryRateLimiter(config) : unavailableRateLimiter);
   app.addHook('onRequest', async (request, reply) => {
     reply.header('X-Request-Id', request.id);
     if (request.url.startsWith('/api/') || request.url.startsWith('/health')) reply.header('Cache-Control', 'no-store');
-    if (request.headers['content-encoding'] !== undefined && request.headers['content-encoding'] !== 'identity') {
+    if (request.routeOptions.url !== '/api/v1/integrations/call-for-sites/submissions' && request.headers.authorization !== undefined && request.headers['x-api-key'] !== undefined) throw new AppError(400, 'AMBIGUOUS_AUTHENTICATION', 'Supply only one credential method.');
+    if (request.routeOptions.url !== '/api/v1/integrations/call-for-sites/submissions' && request.headers['content-encoding'] !== undefined && request.headers['content-encoding'] !== 'identity') {
       throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Compressed request bodies are not supported.');
     }
   });
@@ -69,7 +71,8 @@ export async function createApp(config: Config, users: UserRepository, verifier?
   }));
   const verify = config.AUTH_MODE === 'ENTRA' ? verifier ?? createIdentityVerifier(config) : undefined;
   await app.register(async protectedRoutes => {
-    protectedRoutes.addHook('preHandler', async request => {
+    protectedRoutes.addHook('onRequest', async (request, reply) => {
+      if (request.headers['x-api-key'] !== undefined) throw new AppError(401, 'INVALID_CREDENTIALS', 'API keys cannot access human endpoints.');
       let identity: Identity;
       if (config.AUTH_MODE === 'TEST_USER') {
         identity = { subject: config.TEST_USER_SUBJECT, email: config.TEST_USER_EMAIL, displayName: config.TEST_USER_NAME };
@@ -79,11 +82,21 @@ export async function createApp(config: Config, users: UserRepository, verifier?
         identity = await verify!(authorization.slice(7));
       }
       // Every protected read consults current local access; only the session endpoint writes profile/login data.
-      request.user = request.routeOptions.url === '/api/v1/auth/me'
-        ? await users.authenticate(identity, { requestId: request.id })
-        : await users.findBySubject(identity.subject);
+      request.user = await users.findBySubject(identity.subject);
+      if (request.user) {
+        request.actor = { type: 'USER', user: request.user };
+        await consumeRequestBudget(limiter, 'USER', request.user.id, reply);
+        if (request.user.status === 'APPROVED') {
+          const writes = ['PATCH', 'PUT', 'DELETE'].includes(request.method) || (request.method === 'POST' &&
+            (request.routeOptions.url?.startsWith('/api/v1/admin/') || request.routeOptions.url === '/api/v1/call-for-sites/submissions'));
+          if (writes) await consumeRequestBudget(limiter, 'USER_WRITE', request.user.id, reply);
+        }
+      }
+      if (request.routeOptions.url === '/api/v1/auth/me') {
+        request.user = await users.authenticate(identity, { requestId: request.id });
+        request.actor = { type: 'USER', user: request.user };
+      }
       if (!request.user) throw new AppError(403, 'USER_NOT_APPROVED', 'Your account does not have approved access.');
-      request.actor = { type: 'USER', user: request.user };
     });
     protectedRoutes.get('/api/v1/auth/me', async request => sessionForUser(request.user!));
     protectedRoutes.get('/api/v1/app/config', async request => {
@@ -127,6 +140,7 @@ export async function createApp(config: Config, users: UserRepository, verifier?
     });
     if (integrations) await registerIntegrationRoutes(protectedRoutes, integrations);
   });
+  await registerExternalSubmissionRoute(app, integrations, limiter, options.externalSubmission);
   if (config.SERVE_FRONTEND === 'true' || (config.SERVE_FRONTEND !== 'false' && isDeployed(config))) {
     const root = config.FRONTEND_DIST_DIR ?? fileURLToPath(new URL('../../frontend/dist/', import.meta.url));
     await app.register(staticFiles, { root });

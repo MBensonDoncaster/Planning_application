@@ -177,7 +177,7 @@ describe('Entra token validation', () => {
     for (const url of ['/api/v1/auth/me', '/api/v1/home', '/api/v1/app/config', '/api/v1/admin/users']) {
       const response = await app.inject({ url, headers: { 'x-api-key': 'synthetic-integration-key' } });
       expect(response.statusCode).toBe(401);
-      expect(response.json().error.code).toBe('AUTHENTICATION_REQUIRED');
+      expect(response.json().error.code).toBe('INVALID_CREDENTIALS');
     }
     expect(fixture.records.size).toBe(0);
     expect(fixture.refreshes()).toBe(0);

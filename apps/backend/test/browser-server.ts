@@ -1,3 +1,4 @@
+import { createPostgresRateLimiter } from '../src/shared/rate-limits.js';
 import { fileURLToPath } from 'node:url';
 import { createApp } from '../src/app.js';
 import { readConfig } from '../src/config/env.js';
@@ -11,7 +12,7 @@ const config = readConfig({ ...process.env, APP_ORIGIN: 'http://127.0.0.1:4174',
   DATABASE_URL: process.env.TEST_DATABASE_URL, TEST_USER_SUBJECT: 'local:synthetic-admin',
   TEST_USER_EMAIL: 'synthetic-admin@example.test', TEST_USER_NAME: 'Synthetic administrator',
   SERVE_FRONTEND: 'true', FRONTEND_DIST_DIR: fileURLToPath(new URL('../../frontend/dist/', import.meta.url)),
-  RATE_LIMIT_MAX: '10000', LOG_LEVEL: 'silent' });
+  RATE_LIMIT_MAX: '10000', RATE_LIMIT_USER_MAX: '10000', RATE_LIMIT_WRITE_MAX: '10000', LOG_LEVEL: 'silent' });
 requireSyntheticSeed(config, process.env.TEST_DATABASE_URL);
 let stopRequested = false;
 let readyToStop: (() => Promise<void>) | undefined;
@@ -40,7 +41,7 @@ try {
   if (!stopRequested) await seedSyntheticUsers(client);
   if (!stopRequested) {
     const audit = createAuditService(client);
-    app = await createApp(config, createUserRepository(client, audit), undefined, audit, createIntegrationService(client, config, audit));
+    app = await createApp(config, createUserRepository(client, audit), undefined, audit, createIntegrationService(client, config, audit), { rateLimiter: createPostgresRateLimiter(client, config) });
     await app.listen({ host: config.HOST, port: config.PORT });
   }
   readyToStop = stop;
