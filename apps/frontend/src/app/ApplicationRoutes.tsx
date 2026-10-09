@@ -4,6 +4,7 @@ import { Link, Navigate, NavLink, Route, Routes } from 'react-router-dom';
 import type { User } from '../types';
 import { AccessScreen } from '../features/AccessScreen';
 import { UserAdmin } from '../features/UserAdmin';
+import { IntegrationAdmin } from '../features/IntegrationAdmin';
 import { PageBanner } from '../components/PageBanner';
 import { canAccess } from './access';
 
@@ -59,7 +60,7 @@ export function ApplicationRoutes({ user, capabilities, config, refreshAccess }:
         <Stack component="nav" aria-label="Administration navigation" direction="row" spacing={1}>
           {ADMIN_ROUTES.filter(item => canAccess(user, capabilities, item.capability)).map(item => <Button component={NavLink} key={item.path} to={item.path} sx={{ '&.active': { textDecoration: 'underline' } }}>{item.label}</Button>)}
         </Stack>
-        {route.path === '/admin/users' ? <UserAdmin currentUser={user} refreshAccess={refreshAccess} /> : <FunctionShell title={route.label} description={route.description} />}
+        {route.path === '/admin/users' ? <UserAdmin currentUser={user} refreshAccess={refreshAccess} /> : route.path === '/admin/integrations' ? <IntegrationAdmin limits={config.limits} timezone={config.businessTimezone} refreshAccess={refreshAccess} /> : <FunctionShell title={route.label} description={route.description} />}
       </Stack> : <AccessDenied />} />)}
     <Route path="*" element={<Stack spacing={2}><Typography variant="h4" component="h1">Page not found</Typography><Button component={Link} to={landing}>Back to Call for Sites</Button></Stack>} />
   </Routes>;

@@ -7,6 +7,7 @@ import { AppHeader } from '../components/AppHeader';
 import type { User } from '../types';
 
 vi.mock('../features/UserAdmin', () => ({ UserAdmin: () => <h1>User administration</h1> }));
+vi.mock('../features/IntegrationAdmin', () => ({ IntegrationAdmin: () => <h1>Integrations</h1> }));
 const user: User = { id: 'user-1', subject: 'local:developer', email: 'dev@example.test', displayName: 'Developer', role: 'USER', status: 'APPROVED', createdAt: '', updatedAt: '', lastLoginAt: null, approvedAt: null, approvedByUserId: null };
 const config: AppConfig = { appName: 'Planning', businessTimezone: 'Europe/London', enabledModules: MODULE_REGISTRY, limits: {
   ingestionMaxBodyBytes: 10485760, uploadMaxFileBytes: 5242880, zipMaxEntries: 1000, jsonMaxDepth: 100,
