@@ -2,7 +2,7 @@
 
 The Planning application starts from a provider-independent template: React, Material UI and TypeScript in the browser; a Fastify API; and PostgreSQL accessed through Prisma. Frontend and API share one origin in the container. Use Node.js 24.21.0 (`.nvmrc`) and npm 11.19.0 (`packageManager`) for host development, matching the pinned Docker image. The supported engine ranges remain Node.js 24 and npm 11.
 
-Shared storage now includes `users`, `integrations`, `api_keys`, `audit_events`, `idempotency_records` and `rate_limit_buckets`. Prisma also maintains its migration-history table. Integration/audit/replay/throttling services are implemented in subsequent tasks; there are currently no business submission tables or cloud-provider dependencies.
+Shared storage now includes `users`, `integrations`, `api_keys`, `audit_events`, `idempotency_records` and `rate_limit_buckets`. Prisma also maintains its migration-history table. Transactional auditing covers the implemented session and user-access workflows. Integration/replay/throttling services and audit review are implemented in subsequent tasks; there are currently no business submission tables or cloud-provider dependencies.
 
 ## Included behaviour
 
@@ -13,6 +13,8 @@ Shared storage now includes `users`, `integrations`, `api_keys`, `audit_events`,
 - User administration supports search, status filtering, pagination, approval, rejection, role assignment, disabling and reopening access requests. Reopening a rejected or disabled account returns it to `PENDING`; an administrator must approve it again.
 - Approval records the administrator and timestamp. Role assignment is separate from approval. Entra directory roles do not grant local permissions.
 - The API checks local role and status on every protected request. Database transactions serialize administrative changes so concurrent requests cannot disable or demote the last approved administrator.
+- Session synchronisation and user-access changes commit their audit records atomically with data changes. Protected reads record an audit before returning; an audit persistence failure blocks success with 503. Failed requests record a separate failure/denial event where possible and preserve the original error when audit storage is unavailable.
+- Audit metadata uses action-specific safe fields. User searches record a hash/length rather than search text; profiles, request bodies and credentials are excluded. Automatic request logging is disabled to avoid retaining query strings and network sources; operational fallback logs contain safe action/status/request identifiers.
 - Liveness (`/health`), database readiness (`/health/ready`), request IDs, JSON logs, token redaction, security headers and request limits.
 
 ## Quick start: local containers

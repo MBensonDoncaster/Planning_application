@@ -4,6 +4,7 @@ import { readConfig } from '../src/config/env.js';
 import { createUserRepository } from '../src/modules/users/repository.js';
 import { createTestDatabase } from './support/database.js';
 import { requireSyntheticSeed, seedSyntheticUsers } from './support/synthetic-users.js';
+import { createAuditService } from '../src/shared/audit.js';
 
 const config = readConfig({ ...process.env, APP_ORIGIN: 'http://127.0.0.1:4174', HOST: '127.0.0.1', PORT: '4174',
   DATABASE_URL: process.env.TEST_DATABASE_URL, TEST_USER_SUBJECT: 'local:synthetic-admin',
@@ -37,7 +38,8 @@ async function stop() {
 try {
   if (!stopRequested) await seedSyntheticUsers(client);
   if (!stopRequested) {
-    app = await createApp(config, createUserRepository(client));
+    const audit = createAuditService(client);
+    app = await createApp(config, createUserRepository(client, audit), undefined, audit);
     await app.listen({ host: config.HOST, port: config.PORT });
   }
   readyToStop = stop;

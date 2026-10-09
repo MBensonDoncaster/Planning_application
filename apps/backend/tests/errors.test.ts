@@ -1,3 +1,4 @@
+import { syntheticAudit } from './support/audit.js';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -35,7 +36,7 @@ function repository(): UserRepository {
 
 async function start(repo = repository(), extra: Record<string, unknown> = {}) {
   const config = readConfig({ NODE_ENV: 'test', DATABASE_URL: 'postgresql://test:test@localhost/test', AUTH_MODE: 'TEST_USER', ...extra });
-  const app = await createApp(config, repo);
+  const app = await createApp(config, repo, undefined, syntheticAudit().audit);
   apps.push(app);
   return app;
 }

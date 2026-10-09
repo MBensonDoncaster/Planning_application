@@ -1,3 +1,4 @@
+import { syntheticAudit } from './support/audit.js';
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, afterEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
@@ -35,7 +36,7 @@ function fixture(user = baseUser()) {
 }
 async function start(repo: UserRepository) {
   const config = readConfig({ NODE_ENV: 'test', DATABASE_URL: 'postgresql://test:test@localhost/test', AUTH_MODE: 'TEST_USER' });
-  const app = await createApp(config, repo);
+  const app = await createApp(config, repo, undefined, syntheticAudit().audit);
   apps.push(app);
   return app;
 }

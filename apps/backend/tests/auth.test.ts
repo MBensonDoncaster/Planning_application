@@ -1,3 +1,4 @@
+import { syntheticAudit } from './support/audit.js';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { describe, expect, it, beforeAll, afterEach } from 'vitest';
 import { readConfig } from '../src/config/env.js';
@@ -70,7 +71,7 @@ describe('Entra token validation', () => {
   it('rejects missing and invalid credentials before creating a database user', async () => {
     let creations = 0;
     const repo = { authenticate: async () => { creations++; throw new Error('Unexpected DB access'); }, close: async () => {} } as unknown as UserRepository;
-    app = await createApp(config, repo, verify);
+    app = await createApp(config, repo, verify, syntheticAudit().audit);
     expect((await app.inject('/api/v1/auth/config')).statusCode).toBe(200);
     expect((await app.inject('/api/v1/auth/me')).statusCode).toBe(401);
     const invalid = await app.inject({ url: '/api/v1/auth/me', headers: { authorization: 'Bearer invalid' } });
@@ -82,7 +83,7 @@ describe('Entra token validation', () => {
 
   it('registers and refreshes profiles only through the session endpoint', async () => {
     const fixture = localRepository();
-    app = await createApp(config, fixture.repo, verify);
+    app = await createApp(config, fixture.repo, verify, syntheticAudit().audit);
     const bearer = await token();
     const headers = { authorization: `Bearer ${bearer}` };
     const denied = await app.inject({ url: '/api/v1/home', headers });
@@ -119,7 +120,7 @@ describe('Entra token validation', () => {
 
   it('immediately applies local disablement and demotion to the same signed token', async () => {
     const fixture = localRepository();
-    app = await createApp(config, fixture.repo, verify);
+    app = await createApp(config, fixture.repo, verify, syntheticAudit().audit);
     const headers = { authorization: `Bearer ${await token({ roles: ['ADMIN'], groups: ['administrators'] })}` };
     const session = await app.inject({ url: '/api/v1/auth/me', headers });
     expect(session.json().user).toMatchObject({ role: 'USER', status: 'PENDING' });
@@ -141,7 +142,7 @@ describe('Entra token validation', () => {
 
   it('rejects API keys as credentials on existing human routes', async () => {
     const fixture = localRepository();
-    app = await createApp(config, fixture.repo, verify);
+    app = await createApp(config, fixture.repo, verify, syntheticAudit().audit);
     for (const url of ['/api/v1/auth/me', '/api/v1/home', '/api/v1/app/config', '/api/v1/admin/users']) {
       const response = await app.inject({ url, headers: { 'x-api-key': 'synthetic-integration-key' } });
       expect(response.statusCode).toBe(401);

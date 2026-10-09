@@ -15,7 +15,7 @@ describe.skipIf(!testUrl)('PostgreSQL repository integration', () => {
     database = await createTestDatabase(testUrl);
     repository = createUserRepository(database.createClient());
   }, 60_000);
-  beforeEach(async () => { await database.pool.query('TRUNCATE TABLE "users" CASCADE'); });
+  beforeEach(async () => { await database.pool.query('TRUNCATE TABLE "users", "audit_events" CASCADE'); });
   afterAll(async () => {
     await repository?.close();
     await database?.cleanup();
@@ -62,6 +62,47 @@ describe.skipIf(!testUrl)('PostgreSQL repository integration', () => {
     expect((await database.pool.query('SELECT COUNT(*)::int AS count FROM "users"')).rows[0].count).toBe(1);
     await database.pool.query(`UPDATE "users" SET status='DISABLED' WHERE id=$1`, [user.id]);
     expect(await repository.findBySubject(user.subject)).toMatchObject({ status: 'DISABLED' });
+  });
+  async function rejectAuditWrites(run: () => Promise<void>) {
+    await database.pool.query("CREATE FUNCTION reject_audit_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Injected audit storage failure'; END $$");
+    await database.pool.query('CREATE TRIGGER reject_audit_write BEFORE INSERT ON audit_events FOR EACH ROW EXECUTE FUNCTION reject_audit_write()');
+    try { await run(); }
+    finally {
+      await database.pool.query('DROP TRIGGER reject_audit_write ON audit_events');
+      await database.pool.query('DROP FUNCTION reject_audit_write()');
+    }
+  }
+  it('commits session synchronization and user access changes with their attributed audit records', async () => {
+    const actor = await admin('audit-owner');
+    const target = await repository.authenticate({ subject: 'audited-target', email: 'target@example.test', displayName: 'Target' }, { requestId: 'session-integration' });
+    await repository.change(actor.id, target.id, { action: 'approve' }, { requestId: 'change-integration' });
+    const events = await database.pool.query('SELECT request_id, actor_type, actor_user_id, action, outcome, target_type, target_id, metadata FROM audit_events ORDER BY request_id');
+    expect(events.rows).toEqual([
+      expect.objectContaining({ request_id: 'change-integration', actor_type: 'USER', actor_user_id: actor.id, action: 'USER_CHANGE', outcome: 'SUCCESS', target_type: 'user', target_id: target.id, metadata: expect.objectContaining({ change: 'approve', status: 'APPROVED' }) }),
+      expect.objectContaining({ request_id: 'session-integration', actor_type: 'USER', actor_user_id: target.id, action: 'SESSION_SYNC', outcome: 'SUCCESS' }),
+    ]);
+  });
+  it('rolls back initial registration and subsequent profile/login updates when session auditing fails', async () => {
+    const identity = { subject: 'rollback-profile', email: 'original@example.test', displayName: 'Original' };
+    const existing = await repository.authenticate(identity);
+    const before = (await database.pool.query('SELECT * FROM users WHERE id=$1', [existing.id])).rows;
+    await rejectAuditWrites(async () => {
+      await expect(repository.authenticate({ ...identity, subject: 'new-failed-registration' }, { requestId: 'failed-registration' })).rejects.toMatchObject({ statusCode: 503, code: 'SERVICE_UNAVAILABLE' });
+      await expect(repository.authenticate({ ...identity, email: 'changed@example.test', displayName: 'Changed' }, { requestId: 'failed-refresh' })).rejects.toMatchObject({ statusCode: 503, code: 'SERVICE_UNAVAILABLE' });
+    });
+    expect(await repository.findBySubject('new-failed-registration')).toBeNull();
+    expect((await database.pool.query('SELECT * FROM users WHERE id=$1', [existing.id])).rows).toEqual(before);
+    expect((await database.pool.query('SELECT COUNT(*)::int AS count FROM audit_events')).rows[0].count).toBe(0);
+  });
+  it('rolls back status and approval metadata when the associated audit insert fails', async () => {
+    const actor = await admin('rollback-owner');
+    const target = await repository.authenticate({ subject: 'rollback-target', email: 'target@example.test', displayName: 'Target' });
+    const before = (await database.pool.query('SELECT * FROM users WHERE id=$1', [target.id])).rows;
+    await rejectAuditWrites(async () => {
+      await expect(repository.change(actor.id, target.id, { action: 'approve' }, { requestId: 'failed-change' })).rejects.toMatchObject({ statusCode: 503, code: 'SERVICE_UNAVAILABLE' });
+    });
+    expect((await database.pool.query('SELECT * FROM users WHERE id=$1', [target.id])).rows).toEqual(before);
+    expect((await database.pool.query('SELECT COUNT(*)::int AS count FROM audit_events')).rows[0].count).toBe(0);
   });
   it('deploys the complete committed migration chain and safely repeats deploy', async () => {
     const directories = await readdir(new URL('../prisma/migrations/', import.meta.url), { withFileTypes: true });
