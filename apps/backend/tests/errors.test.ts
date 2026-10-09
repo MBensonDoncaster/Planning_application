@@ -58,7 +58,7 @@ describe('shared HTTP error contract', () => {
   it('returns safe parser errors for invalid and empty JSON', async () => {
     const app = await start();
     for (const payload of ['{"private-contact":', '']) {
-      const response = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${randomUUID()}`, headers: { 'content-type': 'application/json' }, payload });
+      const response = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${randomUUID()}/role`, headers: { 'content-type': 'application/json' }, payload });
       expectError(response, 400, 'VALIDATION_ERROR');
       expect(response.body).not.toContain('private-contact');
     }
@@ -93,7 +93,7 @@ describe('shared HTTP error contract', () => {
 
   it('normalises parser size, media type and content encoding failures', async () => {
     const app = await start(repository(), { INGESTION_MAX_BODY_BYTES: 16_384 });
-    const url = `/api/v1/admin/users/${randomUUID()}`;
+    const url = `/api/v1/admin/users/${randomUUID()}/role`;
     expectError(await app.inject({ method: 'PATCH', url, headers: { 'content-type': 'application/json' }, payload: JSON.stringify({ text: 'a'.repeat(16_384) }) }), 413, 'PAYLOAD_TOO_LARGE');
     expectError(await app.inject({ method: 'PATCH', url, headers: { 'content-type': 'application/xml' }, payload: '<secret/>' }), 415, 'UNSUPPORTED_MEDIA_TYPE');
     expectError(await app.inject({ method: 'PATCH', url, headers: { 'content-type': 'application/json', 'content-encoding': 'gzip' }, payload: '{}' }), 415, 'UNSUPPORTED_MEDIA_TYPE');

@@ -4,6 +4,7 @@ import type { UserRepository } from '../src/modules/users/types.js';
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { createTestDatabase, deployMigrations, requireTestDatabase, type TestDatabase } from '../test/support/database.js';
 import { seedSyntheticUsers, SYNTHETIC_USERS } from '../test/support/synthetic-users.js';
+import { bootstrapAdministrator } from '../src/modules/users/bootstrap.js';
 
 const testUrl = process.env.TEST_DATABASE_URL;
 if (process.env.REQUIRE_TEST_DATABASE === '1') requireTestDatabase(testUrl);
@@ -52,6 +53,66 @@ describe.skipIf(!testUrl)('PostgreSQL repository integration', () => {
     const count = await database.pool.query(`SELECT COUNT(*)::int AS count FROM "users" WHERE role='ADMIN' AND status='APPROVED'`);
     expect(count.rows[0].count).toBe(1);
   });
+  it('retains independent roles and records each approval, rejection and reopening actor', async () => {
+    const owner = await admin('workflow-owner');
+    const target = await repository.authenticate({ subject: 'workflow-target', email: 'target@example.test', displayName: 'Target' });
+    const change = (value: Parameters<UserRepository['change']>[2]) => repository.change(owner.id, target.id, value, { requestId: `workflow-${value.action}` });
+    const assigned = await change({ action: 'role', role: 'ADMIN' });
+    expect(assigned).toMatchObject({ role: 'ADMIN', status: 'PENDING', approvedAt: null });
+    const approved = await change({ action: 'approve' });
+    const demoted = await change({ action: 'role', role: 'USER' });
+    expect(demoted.approvedAt).toEqual(approved.approvedAt); expect(demoted.approvedByUserId).toBe(owner.id);
+    const disabled = await change({ action: 'disable' });
+    expect(disabled).toMatchObject({ status: 'DISABLED', approvedAt: null, approvedByUserId: null });
+    await expect(change({ action: 'approve' })).rejects.toMatchObject({ code: 'INVALID_TRANSITION' });
+    expect(await change({ action: 'enable' })).toMatchObject({ role: 'USER', status: 'PENDING', approvedAt: null, approvedByUserId: null });
+    expect(await change({ action: 'reject' })).toMatchObject({ status: 'REJECTED', approvedAt: null });
+    expect(await change({ action: 'enable' })).toMatchObject({ status: 'PENDING' });
+    const reapproved = await change({ action: 'approve' });
+    expect(reapproved.approvedAt).toBeInstanceOf(Date); expect(reapproved.approvedByUserId).toBe(owner.id);
+    const events = await database.pool.query('SELECT action, actor_user_id, target_id FROM audit_events ORDER BY occurred_at, id');
+    expect(events.rows).toHaveLength(8);
+    expect(events.rows.every(event => event.actor_user_id === owner.id && event.target_id === target.id)).toBe(true);
+    expect(events.rows.filter(event => event.action === 'USER_REOPENED')).toHaveLength(2);
+    expect(events.rows.filter(event => event.action === 'USER_APPROVED')).toHaveLength(2);
+  });
+  it('concurrent first sessions create one pending user and exactly one creation audit', async () => {
+    const identity = { subject: 'entra:concurrent:object', email: 'same@example.test', displayName: 'Concurrent' };
+    const sessions = await Promise.all(Array.from({ length: 8 }, (_, index) => repository.authenticate(identity, { requestId: `concurrent-${index}` })));
+    expect(new Set(sessions.map(user => user.id)).size).toBe(1);
+    expect(sessions.every(user => user.role === 'USER' && user.status === 'PENDING')).toBe(true);
+    const events = await database.pool.query('SELECT action, COUNT(*)::int AS count FROM audit_events GROUP BY action ORDER BY action');
+    expect(events.rows).toEqual([{ action: 'USER_CREATED', count: 1 }, { action: 'USER_SIGNED_IN', count: 8 }]);
+    const another = await repository.authenticate({ ...identity, subject: 'entra:another:object' });
+    expect(another.id).not.toBe(sessions[0].id);
+  });
+  it('validates profile lengths before changing any profile or audit record', async () => {
+    const identity = { subject: 'profile-length', email: 'same@example.test', displayName: 'Original' };
+    const user = await repository.authenticate(identity);
+    await expect(repository.authenticate({ ...identity, displayName: 'a'.repeat(201) }, { requestId: 'invalid-profile' })).rejects.toMatchObject({ statusCode: 401 });
+    expect(await repository.findBySubject(identity.subject)).toMatchObject({ id: user.id, displayName: 'Original' });
+    expect((await database.pool.query('SELECT COUNT(*)::int AS count FROM audit_events')).rows[0].count).toBe(0);
+  });
+  it('serializes simultaneous admin disablement and preserves one approved administrator', async () => {
+    const a = await admin('disable-a'), b = await admin('disable-b');
+    const results = await Promise.allSettled([
+      repository.change(a.id, a.id, { action: 'disable' }, { requestId: 'disable-a' }),
+      repository.change(b.id, b.id, { action: 'disable' }, { requestId: 'disable-b' }),
+    ]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find(result => result.status === 'rejected')).toMatchObject({ reason: { code: 'LAST_APPROVED_ADMIN' } });
+    expect((await database.pool.query("SELECT COUNT(*)::int AS count FROM users WHERE role='ADMIN' AND status='APPROVED'")).rows[0].count).toBe(1);
+  });
+  it('filters role, status and text and pages ties by descending immutable ID', async () => {
+    for (let index = 0; index < 53; index++) await repository.authenticate({ subject: `listed-${index}`, email: 'duplicate@example.test', displayName: 'Matching' });
+    await database.pool.query("UPDATE users SET created_at='2026-10-01T00:00:00Z'");
+    const first = await repository.list({ page: 1, pageSize: 50, search: 'MATCH', role: 'USER', status: 'PENDING' });
+    const second = await repository.list({ page: 2, pageSize: 50, search: 'match', role: 'USER', status: 'PENDING' });
+    const expected = await database.pool.query('SELECT id FROM users ORDER BY created_at DESC, id DESC');
+    expect(first.total).toBe(53); expect(first.users).toHaveLength(50); expect(second.users).toHaveLength(3);
+    expect([...first.users, ...second.users].map(user => user.id)).toEqual(expected.rows.map(row => row.id));
+    expect((await repository.list({ page: 1, pageSize: 50, search: '', role: 'ADMIN' })).total).toBe(0);
+  });
   it('looks up immutable subjects without changing profiles, login timestamps or access', async () => {
     const user = await repository.authenticate({ subject: 'entra:read-only:object', email: 'reader@example.test', displayName: 'Reader' });
     await database.pool.query(`UPDATE "users" SET role='ADMIN', status='APPROVED', approved_at=NOW() WHERE id=$1`, [user.id]);
@@ -72,14 +133,47 @@ describe.skipIf(!testUrl)('PostgreSQL repository integration', () => {
       await database.pool.query('DROP FUNCTION reject_audit_write()');
     }
   }
+  it('bootstraps only the exact pending identity and commits a SYSTEM audit atomically', async () => {
+    const subject = 'entra:11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222';
+    const config = { AUTH_MODE: 'ENTRA' as const, ENTRA_TENANT_ID: '11111111-1111-4111-8111-111111111111', TEST_USER_SUBJECT: 'local:developer' };
+    const target = await repository.authenticate({ subject, email: 'verified@example.test', displayName: 'Verified' });
+    const client = database.createClient();
+    try {
+      await expect(bootstrapAdministrator(client, subject.replace('22222222', '33333333'), config, 'wrong-target')).rejects.toThrow('exact user');
+      await expect(bootstrapAdministrator(client, subject.replace(config.ENTRA_TENANT_ID, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'), config, 'wrong-tenant')).rejects.toThrow('exact subject');
+      await expect(bootstrapAdministrator(client, `entra:${config.ENTRA_TENANT_ID}:------------------------------------`, config, 'bad-object')).rejects.toThrow('exact subject');
+      await rejectAuditWrites(async () => {
+        await expect(bootstrapAdministrator(client, subject, config, 'failed-bootstrap')).rejects.toMatchObject({ code: 'SERVICE_UNAVAILABLE' });
+      });
+      expect(await repository.findBySubject(subject)).toMatchObject({ role: 'USER', status: 'PENDING', approvedAt: null });
+      const result = await bootstrapAdministrator(client, subject, config, 'verified-bootstrap');
+      expect(result).toMatchObject({ id: target.id, role: 'ADMIN', status: 'APPROVED', approvedByUserId: null });
+      expect(result.approvedAt).toBeInstanceOf(Date);
+      expect((await database.pool.query('SELECT actor_type, action, target_id FROM audit_events')).rows).toEqual([{ actor_type: 'SYSTEM', action: 'ADMIN_BOOTSTRAPPED', target_id: target.id }]);
+      await expect(bootstrapAdministrator(client, subject, config, 'repeat')).rejects.toThrow('already exists');
+    } finally { await client.$disconnect(); }
+  });
+  it('concurrent first-admin bootstrap attempts allow only one verified pending identity', async () => {
+    const config = { AUTH_MODE: 'ENTRA' as const, ENTRA_TENANT_ID: '11111111-1111-4111-8111-111111111111', TEST_USER_SUBJECT: 'local:developer' };
+    const subjects = ['22222222-2222-4222-8222-222222222222', '33333333-3333-4333-8333-333333333333'].map(id => `entra:${config.ENTRA_TENANT_ID}:${id}`);
+    for (const subject of subjects) await repository.authenticate({ subject, email: 'duplicate@example.test', displayName: 'Verified' });
+    const client = database.createClient();
+    try {
+      const results = await Promise.allSettled(subjects.map((subject, index) => bootstrapAdministrator(client, subject, config, `bootstrap-${index}`)));
+      expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+      expect((await database.pool.query("SELECT COUNT(*)::int AS count FROM users WHERE role='ADMIN' AND status='APPROVED'")).rows[0].count).toBe(1);
+      expect((await database.pool.query("SELECT COUNT(*)::int AS count FROM audit_events WHERE action='ADMIN_BOOTSTRAPPED'")).rows[0].count).toBe(1);
+    } finally { await client.$disconnect(); }
+  });
   it('commits session synchronization and user access changes with their attributed audit records', async () => {
     const actor = await admin('audit-owner');
     const target = await repository.authenticate({ subject: 'audited-target', email: 'target@example.test', displayName: 'Target' }, { requestId: 'session-integration' });
     await repository.change(actor.id, target.id, { action: 'approve' }, { requestId: 'change-integration' });
-    const events = await database.pool.query('SELECT request_id, actor_type, actor_user_id, action, outcome, target_type, target_id, metadata FROM audit_events ORDER BY request_id');
+    const events = await database.pool.query('SELECT request_id, actor_type, actor_user_id, action, outcome, target_type, target_id, metadata FROM audit_events ORDER BY request_id, action');
     expect(events.rows).toEqual([
-      expect.objectContaining({ request_id: 'change-integration', actor_type: 'USER', actor_user_id: actor.id, action: 'USER_CHANGE', outcome: 'SUCCESS', target_type: 'user', target_id: target.id, metadata: expect.objectContaining({ change: 'approve', status: 'APPROVED' }) }),
-      expect.objectContaining({ request_id: 'session-integration', actor_type: 'USER', actor_user_id: target.id, action: 'SESSION_SYNC', outcome: 'SUCCESS' }),
+      expect.objectContaining({ request_id: 'change-integration', actor_type: 'USER', actor_user_id: actor.id, action: 'USER_APPROVED', outcome: 'SUCCESS', target_type: 'user', target_id: target.id, metadata: expect.objectContaining({ change: 'approve', status: 'APPROVED' }) }),
+      expect.objectContaining({ request_id: 'session-integration', action: 'USER_CREATED' }),
+      expect.objectContaining({ request_id: 'session-integration', actor_type: 'USER', actor_user_id: target.id, action: 'USER_SIGNED_IN', outcome: 'SUCCESS' }),
     ]);
   });
   it('rolls back initial registration and subsequent profile/login updates when session auditing fails', async () => {

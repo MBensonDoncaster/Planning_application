@@ -16,17 +16,14 @@ import { sessionForUser } from './shared/session.js';
 import { unavailableAuditService, type AuditService } from './shared/audit.js';
 import { auditRequestFailure, requestAuditEvent } from './plugins/audit.js';
 import { createHash } from 'node:crypto';
+import type { IntegrationService } from './modules/integrations/service.js';
+import { registerIntegrationRoutes } from './modules/integrations/routes.js';
 
 declare module 'fastify' {
   interface FastifyRequest { user: User | null; actor: Actor | null }
 }
 
-const changeSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('role'), role: z.enum(['USER', 'ADMIN']) }).strict(),
-  ...(['approve', 'reject', 'disable', 'enable'] as const).map(action => z.object({ action: z.literal(action) }).strict()),
-]);
-
-export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity, audit: AuditService = unavailableAuditService) {
+export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity, audit: AuditService = unavailableAuditService, integrations?: IntegrationService) {
   const app = Fastify({
     trustProxy: config.TRUST_PROXY === 'true',
     bodyLimit: config.INGESTION_MAX_BODY_BYTES,
@@ -104,26 +101,31 @@ export async function createApp(config: Config, users: UserRepository, verifier?
       admin.get('/api/v1/admin/users', async request => {
         const query = z.object({
           page: z.coerce.number().int().min(1).max(100_000).default(1),
-          pageSize: z.coerce.number().int().min(1).max(100).default(20),
-          search: z.string().max(200).default(''),
+          pageSize: z.coerce.number().int().refine(value => value === 50).default(50),
+          text: z.string().max(200).default(''),
           status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'DISABLED']).optional(),
+          role: z.enum(['USER', 'ADMIN']).optional(),
         }).strict().parse(request.query);
-        const result = await users.list(query);
+        const result = await users.list({ ...query, search: query.text });
         await audit.record({ ...requestAuditEvent(request), metadata: {
           page: query.page, pageSize: query.pageSize, status: query.status,
-          resultCount: result.users.length, queryHash: createHash('sha256').update(query.search).digest('hex'),
-          queryLength: Array.from(query.search).length,
+          role: query.role, resultCount: result.users.length, queryHash: createHash('sha256').update(query.text).digest('hex'),
+          queryLength: Array.from(query.text).length,
         } });
         return { ...result, page: query.page, pageSize: query.pageSize };
       });
-      admin.patch('/api/v1/admin/users/:id', async request => {
+      for (const action of ['approve', 'reject', 'disable', 'enable'] as const) admin.post(`/api/v1/admin/users/:id/${action}`, async request => {
         const { id } = z.object({ id: z.uuid() }).parse(request.params);
-        const change = changeSchema.parse(request.body);
-        const updated = await users.change(request.user!.id, id, change, { requestId: request.id });
-        request.log.info({ actorId: request.user!.id, targetId: id, action: change.action, role: updated.role, status: updated.status }, 'User access changed');
-        return updated;
+        if (request.body !== undefined) throw new AppError(400, 'VALIDATION_ERROR', 'This action does not accept a request body.');
+        return users.change(request.user!.id, id, { action }, { requestId: request.id });
+      });
+      admin.patch('/api/v1/admin/users/:id/role', async request => {
+        const { id } = z.object({ id: z.uuid() }).parse(request.params);
+        const { role } = z.object({ role: z.enum(['USER', 'ADMIN']) }).strict().parse(request.body);
+        return users.change(request.user!.id, id, { action: 'role', role }, { requestId: request.id });
       });
     });
+    if (integrations) await registerIntegrationRoutes(protectedRoutes, integrations);
   });
   if (config.SERVE_FRONTEND === 'true' || (config.SERVE_FRONTEND !== 'false' && isDeployed(config))) {
     const root = config.FRONTEND_DIST_DIR ?? fileURLToPath(new URL('../../frontend/dist/', import.meta.url));

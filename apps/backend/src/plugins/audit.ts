@@ -4,21 +4,36 @@ import { safeAuditErrorCode } from '../shared/audit.js';
 import { z } from 'zod';
 
 const operations = {
-  'GET /api/v1/auth/me': { module: 'shared', action: 'SESSION_SYNC' },
+  'GET /api/v1/auth/me': { module: 'shared', action: 'USER_SIGNED_IN' },
   'GET /api/v1/app/config': { module: 'shared', action: 'APP_CONFIG_READ' },
   'GET /api/v1/home': { module: 'shared', action: 'HOME_READ' },
   'GET /api/v1/admin/users': { module: 'shared', action: 'USERS_LIST' },
-  'PATCH /api/v1/admin/users/:id': { module: 'shared', action: 'USER_CHANGE' },
+  'POST /api/v1/admin/users/:id/approve': { module: 'shared', action: 'USER_APPROVED' },
+  'POST /api/v1/admin/users/:id/reject': { module: 'shared', action: 'USER_REJECTED' },
+  'POST /api/v1/admin/users/:id/disable': { module: 'shared', action: 'USER_DISABLED' },
+  'POST /api/v1/admin/users/:id/enable': { module: 'shared', action: 'USER_REOPENED' },
+  'PATCH /api/v1/admin/users/:id/role': { module: 'shared', action: 'USER_ROLE_CHANGED' },
+  'GET /api/v1/admin/integrations': { module: 'shared', action: 'INTEGRATIONS_LIST' },
+  'POST /api/v1/admin/integrations': { module: 'shared', action: 'INTEGRATION_CREATED' },
+  'PATCH /api/v1/admin/integrations/:id': { module: 'shared', action: 'INTEGRATION_UPDATED' },
+  'POST /api/v1/admin/integrations/:id/keys': { module: 'shared', action: 'API_KEY_CREATED' },
+  'POST /api/v1/admin/api-keys/:id/rotate': { module: 'shared', action: 'API_KEY_ROTATED' },
+  'POST /api/v1/admin/api-keys/:id/revoke': { module: 'shared', action: 'API_KEY_REVOKED' },
 } as const;
 
 export function requestAuditEvent(request: FastifyRequest): AuditEventInput {
   const key = `${request.method} ${request.routeOptions.url}`;
   const operation = operations[key as keyof typeof operations] ?? { module: 'shared', action: 'REQUEST_FAILED' };
   const event: AuditEventInput = { requestId: request.id, actor: request.actor, ...operation, outcome: 'SUCCESS' };
-  if (operation.action === 'USER_CHANGE') {
+  if (['USER_APPROVED', 'USER_REJECTED', 'USER_DISABLED', 'USER_REOPENED', 'USER_ROLE_CHANGED'].includes(operation.action)) {
     const params = request.params as { id?: unknown } | undefined;
     const target = z.uuid().safeParse(params?.id);
     if (target.success) event.target = { type: 'user', id: target.data };
+  }
+  if (['INTEGRATION_UPDATED', 'API_KEY_CREATED', 'API_KEY_ROTATED', 'API_KEY_REVOKED'].includes(operation.action)) {
+    const params = request.params as { id?: unknown } | undefined;
+    const target = z.uuid().safeParse(params?.id);
+    if (target.success) event.target = { type: operation.action === 'INTEGRATION_UPDATED' || operation.action === 'API_KEY_CREATED' ? 'integration' : 'api-key', id: target.data };
   }
   return event;
 }
@@ -41,7 +56,7 @@ export async function auditRequestFailure(audit: AuditService, request: FastifyR
   if (!request.url.startsWith('/api/')) return;
   const event: AuditEventInput = {
     ...requestAuditEvent(request),
-    outcome: status === 401 || status === 403 ? 'DENIED' : 'FAILURE',
+    outcome: status === 401 || status === 403 || code === 'LAST_APPROVED_ADMIN' ? 'DENIED' : 'FAILURE',
     errorCode: safeAuditErrorCode(code),
     metadata: { statusCode: status },
   };

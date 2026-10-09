@@ -18,6 +18,7 @@ export function UserAdmin({ currentUser, refreshAccess }: { currentUser: User; r
   const [page, setPage] = useState(0);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<Status | ''>('');
+  const [roleFilter, setRoleFilter] = useState<Role | ''>('');
   const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -34,20 +35,22 @@ export function UserAdmin({ currentUser, refreshAccess }: { currentUser: User; r
     const controller = new AbortController();
     setLoading(true);
     const timer = window.setTimeout(() => {
-      const query = new URLSearchParams({ page: String(page + 1), pageSize: '20', search, ...(status ? { status } : {}) });
+      const query = new URLSearchParams({ page: String(page + 1), text: search, ...(status ? { status } : {}), ...(roleFilter ? { role: roleFilter } : {}) });
       void request<Listing>(`/admin/users?${query}`, { signal: controller.signal })
         .then(data => { if (!controller.signal.aborted) setListing(data); })
         .catch(e => { if (!controller.signal.aborted) accessError(e); })
         .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     }, 200);
     return () => { controller.abort(); window.clearTimeout(timer); };
-  }, [page, search, status, revision, accessError]);
+  }, [page, search, status, roleFilter, revision, accessError]);
   const open = (user: User) => { setSelected(user); setRole(user.role); setConfirmation(undefined); setError(''); setSuccess(''); };
   const save = async () => {
     if (!selected || !confirmation) return;
     setSaving(true); setError('');
     try {
-      await request<User>(`/admin/users/${selected.id}`, { method: 'PATCH', body: confirmation.change });
+      const change = confirmation.change;
+      await request<User>(`/admin/users/${selected.id}/${change.action}`, change.action === 'role'
+        ? { method: 'PATCH', body: { role: change.role } } : { method: 'POST' });
       setSuccess(`${confirmation.label} completed for ${selected.displayName}.`);
       setSelected(undefined); setConfirmation(undefined); setRevision(v => v + 1);
       await refreshAccess();
@@ -62,7 +65,10 @@ export function UserAdmin({ currentUser, refreshAccess }: { currentUser: User; r
       <Typography variant="subtitle2" color="primary" sx={{ mb: 1 }}>Application users</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>A role assignment does not approve an account. Approve access separately after reviewing the user.</Typography>
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-      <TextField label="Search name or email" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} size="small" sx={{ flexGrow: 1 }} />
+      <TextField label="Search name or email" value={search} slotProps={{ htmlInput: { maxLength: 200 } }} onChange={e => { setSearch(e.target.value); setPage(0); }} size="small" sx={{ flexGrow: 1 }} />
+      <TextField select label="Filter by role" value={roleFilter} onChange={e => { setRoleFilter(e.target.value as Role | ''); setPage(0); }} size="small" sx={{ minWidth: 150 }}>
+        <MenuItem value="">All roles</MenuItem><MenuItem value="USER">USER</MenuItem><MenuItem value="ADMIN">ADMIN</MenuItem>
+      </TextField>
       <TextField select label="Account status" value={status} onChange={e => { setStatus(e.target.value as Status | ''); setPage(0); }} size="small" sx={{ minWidth: 190 }}>
         <MenuItem value="">All statuses</MenuItem>{statuses.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
       </TextField>
@@ -80,7 +86,7 @@ export function UserAdmin({ currentUser, refreshAccess }: { currentUser: User; r
             </TableRow>)}
         </TableBody>
       </Table></TableContainer>
-      <TablePagination component="div" count={listing.total} page={page} rowsPerPage={20} rowsPerPageOptions={[20]} onPageChange={(_e, p) => setPage(p)} />
+      <TablePagination component="div" count={listing.total} page={page} rowsPerPage={50} rowsPerPageOptions={[50]} onPageChange={(_e, p) => setPage(p)} />
     </Paper>
     <Dialog open={Boolean(selected)} onClose={() => { if (!saving) { setSelected(undefined); setConfirmation(undefined); } }} fullWidth maxWidth="sm">
       <DialogTitle>Manage {selected?.displayName}</DialogTitle>
@@ -93,7 +99,7 @@ export function UserAdmin({ currentUser, refreshAccess }: { currentUser: User; r
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
             {selected?.status === 'PENDING' && <><Button variant="contained" onClick={() => setConfirmation({ change: { action: 'approve' }, label: 'Approve access' })}>Approve</Button><Button color="error" onClick={() => setConfirmation({ change: { action: 'reject' }, label: 'Reject request' })}>Reject</Button></>}
             {selected?.status === 'APPROVED' && <Button color="error" variant="outlined" onClick={() => setConfirmation({ change: { action: 'disable' }, label: 'Disable account' })}>Disable account</Button>}
-            {(selected?.status === 'DISABLED' || selected?.status === 'REJECTED') && <Button variant="outlined" onClick={() => setConfirmation({ change: { action: 'enable' }, label: 'Return to pending approval' })}>Reopen access request</Button>}
+            {(selected?.status === 'DISABLED' || selected?.status === 'REJECTED') && <Button variant="outlined" onClick={() => setConfirmation({ change: { action: 'enable' }, label: 'Return to pending approval' })}>Return to pending approval</Button>}
           </Stack>
           <Stack direction="row" spacing={2}>
             <TextField select label="Application role" value={role} onChange={e => setRole(e.target.value as Role)} size="small" fullWidth><MenuItem value="USER">USER</MenuItem><MenuItem value="ADMIN">ADMIN</MenuItem></TextField>

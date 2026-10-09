@@ -86,7 +86,7 @@ describe('runtime configuration', () => {
     const payload = JSON.stringify({ text: 'a'.repeat(20000) });
     for (const [limit, expected] of [[16384, 413], [30000, 400]]) {
       const app = await start('APPROVED', 'ADMIN', { INGESTION_MAX_BODY_BYTES: limit });
-      expect((await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${randomUUID()}`, payload, headers: { 'content-type': 'application/json' } })).statusCode).toBe(expected);
+      expect((await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${randomUUID()}/role`, payload, headers: { 'content-type': 'application/json' } })).statusCode).toBe(expected);
     }
   });
 });

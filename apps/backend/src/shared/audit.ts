@@ -3,7 +3,11 @@ import type { Actor } from './actors.js';
 import { AppError } from './errors.js';
 
 export interface AuditContext { requestId: string }
-export type AuditAction = 'SESSION_SYNC' | 'APP_CONFIG_READ' | 'HOME_READ' | 'USERS_LIST' | 'USER_CHANGE' | 'REQUEST_FAILED';
+export type AuditAction = 'SESSION_SYNC' | 'APP_CONFIG_READ' | 'HOME_READ' | 'USERS_LIST' | 'USER_CHANGE' | 'REQUEST_FAILED'
+  | 'USER_CREATED' | 'USER_SIGNED_IN' | 'USER_APPROVED' | 'USER_REJECTED' | 'USER_DISABLED'
+  | 'USER_REOPENED' | 'USER_ROLE_CHANGED' | 'ADMIN_BOOTSTRAPPED'
+  | 'INTEGRATIONS_LIST' | 'INTEGRATION_CREATED' | 'INTEGRATION_UPDATED'
+  | 'API_KEY_CREATED' | 'API_KEY_ROTATED' | 'API_KEY_REVOKED';
 export interface AuditEventInput extends AuditContext {
   actor: Actor | null;
   module: 'shared' | 'call-for-sites';
@@ -20,7 +24,13 @@ export interface AuditWriter {
 export interface AuditService { record(event: AuditEventInput, writer?: AuditWriter): Promise<void> }
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const actions: readonly AuditAction[] = ['SESSION_SYNC', 'APP_CONFIG_READ', 'HOME_READ', 'USERS_LIST', 'USER_CHANGE', 'REQUEST_FAILED'];
+const actions: readonly AuditAction[] = [
+  'SESSION_SYNC', 'APP_CONFIG_READ', 'HOME_READ', 'USERS_LIST', 'USER_CHANGE', 'REQUEST_FAILED',
+  'USER_CREATED', 'USER_SIGNED_IN', 'USER_APPROVED', 'USER_REJECTED', 'USER_DISABLED',
+  'USER_REOPENED', 'USER_ROLE_CHANGED', 'ADMIN_BOOTSTRAPPED',
+  'INTEGRATIONS_LIST', 'INTEGRATION_CREATED', 'INTEGRATION_UPDATED',
+  'API_KEY_CREATED', 'API_KEY_ROTATED', 'API_KEY_REVOKED',
+];
 const safeErrorCodes = new Set([
   'AUTHENTICATION_REQUIRED', 'INVALID_CREDENTIALS', 'USER_DISABLED', 'USER_NOT_APPROVED', 'FORBIDDEN',
   'NOT_FOUND', 'USER_NOT_FOUND', 'INVALID_TRANSITION', 'LAST_APPROVED_ADMIN', 'UNSUPPORTED_MEDIA_TYPE',
@@ -35,7 +45,7 @@ function metadataFor(event: AuditEventInput): Prisma.InputJsonObject {
   const input = event.metadata;
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
   const source = input as Record<string, unknown>;
-  const metadata: Record<string, string | number> = {};
+  const metadata: Record<string, string | number | boolean> = {};
   const integer = (key: string, minimum: number, maximum: number) => {
     const value = source[key];
     if (typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum && value <= maximum) metadata[key] = value;
@@ -44,7 +54,14 @@ function metadataFor(event: AuditEventInput): Prisma.InputJsonObject {
     const value = source[key];
     if (typeof value === 'string' && values.includes(value)) metadata[key] = value;
   };
-  if (event.action === 'USER_CHANGE') {
+  const timestamp = (key: string) => {
+    const value = source[key];
+    if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+      const parsed = new Date(value);
+      if (Number.isFinite(parsed.getTime()) && parsed.toISOString() === value) metadata[key] = value;
+    }
+  };
+  if (['USER_CHANGE', 'USER_CREATED', 'USER_SIGNED_IN', 'USER_APPROVED', 'USER_REJECTED', 'USER_DISABLED', 'USER_REOPENED', 'USER_ROLE_CHANGED', 'ADMIN_BOOTSTRAPPED'].includes(event.action)) {
     choice('change', ['approve', 'reject', 'disable', 'enable', 'role']);
     choice('role', ['USER', 'ADMIN']);
     choice('status', ['PENDING', 'APPROVED', 'REJECTED', 'DISABLED']);
@@ -54,9 +71,20 @@ function metadataFor(event: AuditEventInput): Prisma.InputJsonObject {
     integer('resultCount', 0, Number.MAX_SAFE_INTEGER);
     integer('queryLength', 0, Number.MAX_SAFE_INTEGER);
     choice('status', ['PENDING', 'APPROVED', 'REJECTED', 'DISABLED']);
+    choice('role', ['USER', 'ADMIN']);
     if (typeof source.queryHash === 'string' && /^[a-f0-9]{64}$/.test(source.queryHash)) metadata.queryHash = source.queryHash;
   } else if (event.action === 'REQUEST_FAILED') {
     integer('statusCode', 400, 599);
+  } else if (event.action === 'INTEGRATIONS_LIST') {
+    integer('page', 1, Number.MAX_SAFE_INTEGER);
+    integer('pageSize', 1, 50);
+    integer('resultCount', 0, 50);
+  } else if (['INTEGRATION_CREATED', 'INTEGRATION_UPDATED', 'API_KEY_CREATED', 'API_KEY_ROTATED', 'API_KEY_REVOKED'].includes(event.action)) {
+    if (typeof source.enabled === 'boolean') metadata.enabled = source.enabled;
+    integer('capabilityCount', 0, 8);
+    if (typeof source.overlapHours === 'number' && Number.isFinite(source.overlapHours) && source.overlapHours >= 0 && source.overlapHours <= 24) metadata.overlapHours = source.overlapHours;
+    timestamp('expiresAt');
+    timestamp('revokesAt');
   }
   if (event.outcome === 'FAILURE' || event.outcome === 'DENIED') integer('statusCode', 400, 599);
   if (Buffer.byteLength(JSON.stringify(metadata), 'utf8') > 2048) throw unavailable();
