@@ -138,9 +138,9 @@ describe('shared HTTP error contract', () => {
   });
 
   it('normalises throttling errors and retains Retry-After', async () => {
-    const app = await start(repository(), { RATE_LIMIT_MAX: 1 });
-    expect((await app.inject('/health')).statusCode).toBe(200);
-    const response = await app.inject('/health');
+    const app = await start(repository(), { RATE_LIMIT_USER_MAX: 1 });
+    expect((await app.inject('/api/v1/home')).statusCode).toBe(200);
+    const response = await app.inject('/api/v1/home');
     expectError(response, 429, 'RATE_LIMITED');
     expect(Number(response.headers['retry-after'])).toBeGreaterThan(0);
   });

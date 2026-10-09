@@ -84,14 +84,15 @@ describe('audited HTTP operations', () => {
     expect(response.json().error.code).toBe('INTERNAL_ERROR');
     expect(response.body).not.toMatch(/password|applicant/);
   });
-  it('uses UNKNOWN attribution for parsing failures before authentication and omits raw payloads', async () => {
+  it('attributes parsing failures to the authenticated user and omits raw payloads', async () => {
     const { audit, events } = syntheticAudit();
-    const app = await start(fixture().repo, audit);
-    const response = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${randomUUID()}/role`, headers: { 'content-type': 'application/json' }, payload: '{"contact":"private@example.test",' });
+    const { repo, user } = fixture();
+    const app = await start(repo, audit);
+    const response = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${randomUUID()}/role`, headers: { 'content-type': 'application/json' }, payload: '{"contact":"payload-only@example.test",' });
     expect(response.statusCode).toBe(400);
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ actor: null, outcome: 'FAILURE', errorCode: 'VALIDATION_ERROR', requestId: response.headers['x-request-id'] });
-    expect(JSON.stringify(events)).not.toContain('private@example.test');
+    expect(events[0]).toMatchObject({ actor: { type: 'USER', user }, outcome: 'FAILURE', errorCode: 'VALIDATION_ERROR', requestId: response.headers['x-request-id'] });
+    expect(JSON.stringify(events)).not.toContain('payload-only@example.test');
   });
   it('projects an operational fallback without profile attributes, payloads or unsafe exception text', () => {
     const { user } = fixture();
@@ -105,7 +106,7 @@ describe('audited HTTP operations', () => {
     app.addHook('onRequest', async request => {
       vi.spyOn(request.log, 'warn').mockImplementation((...args: unknown[]) => { warnings.push(args); });
     });
-    const response = await app.inject({ url: '/api/v1/admin/users?text=secret-contact', headers: { authorization: 'Bearer secret-token', 'x-api-key': 'secret-key' } });
+    const response = await app.inject({ url: '/api/v1/admin/users?text=secret-contact', headers: { authorization: 'Bearer secret-token' } });
     expect(response.statusCode).toBe(403);
     expect(warnings).toEqual([[{
       requestId: response.headers['x-request-id'], actorType: 'USER', module: 'shared', action: 'USERS_LIST', outcome: 'DENIED', errorCode: 'FORBIDDEN', statusCode: 403, auditPersistence: 'unavailable',

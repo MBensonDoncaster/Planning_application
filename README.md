@@ -2,7 +2,7 @@
 
 The Planning application starts from a provider-independent template: React, Material UI and TypeScript in the browser; a Fastify API; and PostgreSQL accessed through Prisma. Frontend and API share one origin in the container. Use Node.js 24.21.0 (`.nvmrc`) and npm 11.19.0 (`packageManager`) for host development, matching the pinned Docker image. The supported engine ranges remain Node.js 24 and npm 11.
 
-Shared storage now includes `users`, `integrations`, `api_keys`, `audit_events`, `idempotency_records` and `rate_limit_buckets`. Prisma also maintains its migration-history table. Transactional auditing covers session, user-access and integration/key administration. Integration administration screens, APIs and key authentication services are available; the submission endpoint, replay/throttling services and audit review follow in subsequent tasks. There are currently no business submission tables or cloud-provider dependencies.
+Shared storage now includes `users`, `integrations`, `api_keys`, `audit_events`, `idempotency_records` and `rate_limit_buckets`. Prisma also maintains its migration-history table. Transactional auditing covers session, user-access and integration/key administration. Integration administration screens, APIs, key authentication and shared PostgreSQL throttling are available. The external submission authentication boundary is implemented; business ingestion, replay services and audit review follow in subsequent tasks. There are currently no business submission tables or cloud-provider dependencies.
 
 ## Included behaviour
 
@@ -17,6 +17,8 @@ Shared storage now includes `users`, `integrations`, `api_keys`, `audit_events`,
 - Concurrent first sign-ins create one pending account and one creation audit. Sign-ins, each access transition and controlled first-administrator bootstrap have distinct audit actions; bootstrap records its SYSTEM event in the same transaction as approval. Profile lengths are validated before storage.
 - Approved administrators can manage named integrations and submission-only API keys through the administration API. Create/rotate responses return a secret once with `no-store`; ordinary lists expose safe metadata and effective expiry/scopes. Rotation defaults to immediate revocation and permits an explicit overlap of up to 24 hours. Revocation and disablement take effect on the next key authentication.
 - Integration administration lists effective capabilities, key status, expiry and Last authenticated use. Administrators can create integrations and keys, disable/re-enable integrations, rotate keys and revoke them. The key picker offers Call for Sites Submit. A generated secret has a one-time display and Copy control; closing it discards the secret. Lost secrets require a new key. Secrets are kept out of browser storage.
+- `POST /api/v1/integrations/call-for-sites/submissions` authenticates with `x-api-key`, independently of Entra. Human routes reject API keys; the external route does not accept bearer tokens as a substitute. Mixed credentials return 400 `AMBIGUOUS_AUTHENTICATION`. The boundary accepts uncompressed UTF-8 `application/json` objects with a UUID v4 `Idempotency-Key`. Until business ingestion is implemented, otherwise valid requests return 503 `SERVICE_UNAVAILABLE` and create no submission.
+- Shared PostgreSQL rate budgets apply across backend instances: 120 requests per approved user, 30 submission/administration writes per user, 30 submissions per API key and 120 external endpoint requests per source IP, per minute by default. Exceeded budgets return 429 `RATE_LIMITED` with `Retry-After` before a domain write. Key authentication records Last authenticated use before JSON parsing, including malformed payloads.
 - Audit metadata uses action-specific safe fields. User searches record a hash/length rather than search text; profiles, request bodies and credentials are excluded. Automatic request logging is disabled to avoid retaining query strings and network sources; operational fallback logs contain safe action/status/request identifiers.
 - Liveness (`/health`), database readiness (`/health/ready`), request IDs, JSON logs, token redaction, security headers and request limits.
 
@@ -75,7 +77,10 @@ Configuration comes from the server at runtime, so the same built image can be p
 | `ENTRA_SCOPE` | Full delegated scope: `api://<API-client-id>/access_as_user` |
 | `HOST`, `PORT` | Listener address and port; containers default to `0.0.0.0:3000` |
 | `LOG_LEVEL` | Log verbosity; defaults to `info` |
-| `RATE_LIMIT_MAX`, `RATE_LIMIT_WINDOW_MS` | Per-process, per-client-IP request limit; defaults to 120 per minute |
+| `RATE_LIMIT_WINDOW_MS` | Shared fixed-window duration, default 60000 milliseconds |
+| `RATE_LIMIT_USER_MAX`, `RATE_LIMIT_WRITE_MAX` | Shared approved-user request/write budgets, default 120/30 per window |
+| `RATE_LIMIT_KEY_MAX`, `RATE_LIMIT_INTEGRATION_IP_MAX` | Shared external key/source-IP budgets, default 30/120 per window |
+| `RATE_LIMIT_MAX` | Legacy template setting, retained for compatibility; use the scoped budgets above |
 | `TRUST_PROXY` | Defaults to `false`; enable only behind a controlled proxy that replaces forwarded headers |
 | `SERVE_FRONTEND` | Defaults to enabled in deployed staging/production profiles; use `true` for the container development override |
 | `FRONTEND_DIST_DIR` | Optional absolute path for compiled frontend assets |
