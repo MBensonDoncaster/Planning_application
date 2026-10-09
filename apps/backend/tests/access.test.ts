@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { describe, expect, it, afterEach } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import { ROLE_CAPABILITIES } from '@planning/contracts';
 import { createApp } from '../src/app.js';
 import { readConfig } from '../src/config/env.js';
 import { applyChange, requireAdmin, AppError } from '../src/modules/users/service.js';
@@ -18,6 +19,7 @@ function fixture(user = baseUser()) {
   const records = new Map([[user.id, user]]);
   const repo: UserRepository = {
     async authenticate(identity) { const existing = records.get(user.id)!; Object.assign(existing, identity); return existing; },
+    async findBySubject(subject) { return [...records.values()].find(record => record.subject === subject) ?? null; },
     async list() { return { users: [...records.values()], total: records.size }; },
     async change(actorId, targetId, change) {
       requireAdmin(records.get(actorId)!);
@@ -39,6 +41,53 @@ async function start(repo: UserRepository) {
 }
 
 describe('server-side access control', () => {
+  it.each((['USER', 'ADMIN'] as const).flatMap(role =>
+    (['PENDING', 'APPROVED', 'REJECTED', 'DISABLED'] as const).map(status => ({ role, status }))))(
+    'returns current capabilities and enforces all existing protected routes for $role/$status', async ({ role, status }) => {
+      const { user, repo } = fixture({ ...baseUser(), role, status });
+      const app = await start(repo);
+      const session = await app.inject('/api/v1/auth/me');
+      expect(session.statusCode).toBe(200);
+      expect(session.json()).toMatchObject({ user: { id: user.id, role, status }, capabilities: status === 'APPROVED' ? ROLE_CAPABILITIES[role] : [] });
+      for (const url of ['/api/v1/home', '/api/v1/app/config']) {
+        expect((await app.inject(url)).statusCode).toBe(status === 'APPROVED' ? 200 : 403);
+      }
+      const adminAllowed = role === 'ADMIN' && status === 'APPROVED';
+      expect((await app.inject('/api/v1/admin/users')).statusCode).toBe(adminAllowed ? 200 : 403);
+      // A valid UUID with no local target distinguishes an authorised write (404)
+      // from a denied request (403), without changing access state.
+      const write = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${randomUUID()}`, payload: { action: 'approve' } });
+      expect(write.statusCode).toBe(adminAllowed ? 404 : 403);
+    },
+  );
+
+  it('reads current local access without refreshing the profile or login timestamp', async () => {
+    const { user, repo } = fixture({ ...baseUser(), role: 'ADMIN', status: 'APPROVED' });
+    let refreshes = 0;
+    const authenticate = repo.authenticate;
+    repo.authenticate = async identity => { refreshes++; return authenticate(identity); };
+    const app = await start(repo);
+    for (const url of ['/api/v1/home', '/api/v1/app/config', '/api/v1/admin/users']) {
+      expect((await app.inject(url)).statusCode).toBe(200);
+    }
+    expect(refreshes).toBe(0);
+    expect(user.lastLoginAt).toBeNull();
+    expect((await app.inject('/api/v1/auth/me')).statusCode).toBe(200);
+    expect(refreshes).toBe(1);
+  });
+
+  it('does not register an unknown local identity on protected requests', async () => {
+    const { repo, records } = fixture();
+    records.clear();
+    repo.authenticate = async () => { throw new Error('Protected reads must not register a user'); };
+    const app = await start(repo);
+    for (const url of ['/api/v1/home', '/api/v1/app/config', '/api/v1/admin/users']) {
+      const response = await app.inject(url);
+      expect(response.statusCode).toBe(403);
+      expect(response.json().error.code).toBe('USER_NOT_APPROVED');
+    }
+    expect(records.size).toBe(0);
+  });
   it.each(['PENDING', 'REJECTED', 'DISABLED'] as const)('blocks %s accounts even when they have ADMIN role', async status => {
     const { repo } = fixture({ ...baseUser(), role: 'ADMIN', status });
     const app = await start(repo);

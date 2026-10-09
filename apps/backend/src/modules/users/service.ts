@@ -1,14 +1,14 @@
 import type { User, UserChange } from './types.js';
 import { AppError } from '../../shared/errors.js';
+import { requireApprovedUser, requireCapability } from '../../shared/actors.js';
 export { AppError } from '../../shared/errors.js';
 
 export function requireApproved(user: User): void {
-  if (user.status !== 'APPROVED') throw new AppError(403, user.status === 'DISABLED' ? 'USER_DISABLED' : 'USER_NOT_APPROVED', 'Your account does not have approved access.');
+  requireApprovedUser(user);
 }
 
 export function requireAdmin(user: User): void {
-  requireApproved(user);
-  if (user.role !== 'ADMIN') throw new AppError(403, 'FORBIDDEN', 'Administrator access is required.');
+  requireCapability({ type: 'USER', user }, 'users.manage');
 }
 
 export function applyChange(target: User, change: UserChange, approvedAdmins: number, actorId: string): Partial<User> {

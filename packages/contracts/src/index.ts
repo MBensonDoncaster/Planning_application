@@ -1,4 +1,5 @@
 export * from './application.js';
+export * from './session.js';
 
 export interface ErrorDetail {
   path: string;

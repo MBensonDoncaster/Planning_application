@@ -15,7 +15,7 @@ afterEach(async () => { await Promise.all(apps.splice(0).map(app => app.close())
 async function start(status: User['status'] = 'APPROVED', role: User['role'] = 'USER', extra: Record<string, unknown> = {}) {
   const user: User = { id: randomUUID(), subject: 'local:developer', email: 'dev@example.test', displayName: 'Developer', role, status,
     createdAt: new Date(), updatedAt: new Date(), lastLoginAt: null, approvedAt: null, approvedByUserId: null };
-  const repo: UserRepository = { async authenticate() { return user; }, async list() { return { users: [user], total: 1 }; }, async change() { return user; }, async ready() {}, async close() {} };
+  const repo: UserRepository = { async authenticate() { return user; }, async findBySubject(subject) { return subject === user.subject ? user : null; }, async list() { return { users: [user], total: 1 }; }, async change() { return user; }, async ready() {}, async close() {} };
   const app = await createApp(readConfig({ ...local, ...extra }), repo);
   apps.push(app);
   return app;
