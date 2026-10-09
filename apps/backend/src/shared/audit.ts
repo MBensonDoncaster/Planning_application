@@ -7,7 +7,7 @@ export type AuditAction = 'SESSION_SYNC' | 'APP_CONFIG_READ' | 'HOME_READ' | 'US
   | 'USER_CREATED' | 'USER_SIGNED_IN' | 'USER_APPROVED' | 'USER_REJECTED' | 'USER_DISABLED'
   | 'USER_REOPENED' | 'USER_ROLE_CHANGED' | 'ADMIN_BOOTSTRAPPED'
   | 'INTEGRATIONS_LIST' | 'INTEGRATION_CREATED' | 'INTEGRATION_UPDATED'
-  | 'API_KEY_CREATED' | 'API_KEY_ROTATED' | 'API_KEY_REVOKED' | 'EXTERNAL_SUBMISSION';
+  | 'API_KEY_CREATED' | 'API_KEY_ROTATED' | 'API_KEY_REVOKED' | 'EXTERNAL_SUBMISSION' | 'AUDIT_EVENTS_LIST';
 export interface AuditEventInput extends AuditContext {
   actor: Actor | null;
   module: 'shared' | 'call-for-sites';
@@ -29,7 +29,7 @@ const actions: readonly AuditAction[] = [
   'USER_CREATED', 'USER_SIGNED_IN', 'USER_APPROVED', 'USER_REJECTED', 'USER_DISABLED',
   'USER_REOPENED', 'USER_ROLE_CHANGED', 'ADMIN_BOOTSTRAPPED',
   'INTEGRATIONS_LIST', 'INTEGRATION_CREATED', 'INTEGRATION_UPDATED',
-  'API_KEY_CREATED', 'API_KEY_ROTATED', 'API_KEY_REVOKED', 'EXTERNAL_SUBMISSION',
+  'API_KEY_CREATED', 'API_KEY_ROTATED', 'API_KEY_REVOKED', 'EXTERNAL_SUBMISSION', 'AUDIT_EVENTS_LIST',
 ];
 const safeErrorCodes = new Set([
   'AUTHENTICATION_REQUIRED', 'INVALID_CREDENTIALS', 'USER_DISABLED', 'USER_NOT_APPROVED', 'FORBIDDEN',
@@ -41,7 +41,8 @@ const unavailable = () => new AppError(503, 'SERVICE_UNAVAILABLE', 'The service 
 export function safeAuditErrorCode(code: string): string { return safeErrorCodes.has(code) ? code : 'INTERNAL_ERROR'; }
 
 // Audit metadata is a purpose-built projection, never a copy of a request or payload.
-function metadataFor(event: AuditEventInput): Prisma.InputJsonObject {
+export function safeAuditMetadata(event: { action: string; outcome: string; metadata?: unknown }): Record<string, string | number | boolean> {
+  if (!actions.includes(event.action as AuditAction)) return {};
   const input = event.metadata;
   if (!input || typeof input !== 'object' || Array.isArray(input)) return {};
   const source = input as Record<string, unknown>;
@@ -75,6 +76,18 @@ function metadataFor(event: AuditEventInput): Prisma.InputJsonObject {
     if (typeof source.queryHash === 'string' && /^[a-f0-9]{64}$/.test(source.queryHash)) metadata.queryHash = source.queryHash;
   } else if (event.action === 'REQUEST_FAILED') {
     integer('statusCode', 400, 599);
+  } else if (event.action === 'AUDIT_EVENTS_LIST') {
+    integer('page', 1, 100_000);
+    integer('pageSize', 50, 50);
+    integer('resultCount', 0, 50);
+    choice('actorType', ['USER', 'INTEGRATION', 'SYSTEM', 'UNKNOWN']);
+    choice('module', ['shared', 'call-for-sites']);
+    choice('outcome', ['SUCCESS', 'FAILURE', 'DENIED']);
+    timestamp('dateFrom');
+    timestamp('dateTo');
+    for (const key of ['hasDateFrom', 'hasDateTo', 'hasActorId', 'hasAction', 'hasTargetId']) {
+      if (typeof source[key] === 'boolean') metadata[key] = source[key];
+    }
   } else if (event.action === 'INTEGRATIONS_LIST') {
     integer('page', 1, Number.MAX_SAFE_INTEGER);
     integer('pageSize', 1, 50);
@@ -96,7 +109,7 @@ function eventData(event: AuditEventInput): Prisma.AuditEventUncheckedCreateInpu
     || !['shared', 'call-for-sites'].includes(event.module) || !['SUCCESS', 'FAILURE', 'DENIED'].includes(event.outcome)) throw unavailable();
   const data: Prisma.AuditEventUncheckedCreateInput = {
     requestId: event.requestId, actorType: 'UNKNOWN', module: event.module, action: event.action,
-    outcome: event.outcome, metadata: metadataFor(event),
+    outcome: event.outcome, metadata: safeAuditMetadata(event),
   };
   const actor = event.actor;
   if (actor?.type === 'USER') {

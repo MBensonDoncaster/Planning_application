@@ -14,6 +14,7 @@ const operations = {
   'POST /api/v1/admin/users/:id/enable': { module: 'shared', action: 'USER_REOPENED' },
   'PATCH /api/v1/admin/users/:id/role': { module: 'shared', action: 'USER_ROLE_CHANGED' },
   'GET /api/v1/admin/integrations': { module: 'shared', action: 'INTEGRATIONS_LIST' },
+  'GET /api/v1/admin/audit-events': { module: 'shared', action: 'AUDIT_EVENTS_LIST' },
   'POST /api/v1/admin/integrations': { module: 'shared', action: 'INTEGRATION_CREATED' },
   'PATCH /api/v1/admin/integrations/:id': { module: 'shared', action: 'INTEGRATION_UPDATED' },
   'POST /api/v1/admin/integrations/:id/keys': { module: 'shared', action: 'API_KEY_CREATED' },
