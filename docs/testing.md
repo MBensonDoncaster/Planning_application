@@ -31,6 +31,8 @@ The focused database command discovers every `.integration.test.ts` file. User l
 
 HTTP and actor tests cover every USER/ADMIN status combination, all declared capabilities, session-only registration/profile refresh, and unchanged signed tokens after local disablement or demotion. Frontend checks use server-supplied capabilities and exercise permission revocation, failed refreshes and overlapping responses. Integration actor scope intersection is tested independently; real API-key authentication arrives with the integration services.
 
+Audit checks inject PostgreSQL insert failures and prove registration, profile/login updates and user approvals roll back with their audit writes. They also prove a later transaction failure rolls back both data and audit. HTTP fault injection verifies protected reads return 503 without successful payloads when auditing fails, while original authentication/permission/server errors survive failed failure-audit attempts. Metadata, validated targets, UNKNOWN attribution, search hashes and safe operational fallback output have focused regression coverage. Synthetic HTTP repositories explicitly supply a test-only audit collector; runtime and browser fixtures use the real PostgreSQL service.
+
 ## Browser checks on the host
 
 ```powershell

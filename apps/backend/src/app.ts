@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { LogController } from 'fastify';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import staticFiles from '@fastify/static';
@@ -13,6 +13,9 @@ import { isDeployed } from './config/env.js';
 import { publicAppConfig } from './config/public.js';
 import { requireCapability, type Actor } from './shared/actors.js';
 import { sessionForUser } from './shared/session.js';
+import { unavailableAuditService, type AuditService } from './shared/audit.js';
+import { auditRequestFailure, requestAuditEvent } from './plugins/audit.js';
+import { createHash } from 'node:crypto';
 
 declare module 'fastify' {
   interface FastifyRequest { user: User | null; actor: Actor | null }
@@ -23,10 +26,11 @@ const changeSchema = z.discriminatedUnion('action', [
   ...(['approve', 'reject', 'disable', 'enable'] as const).map(action => z.object({ action: z.literal(action) }).strict()),
 ]);
 
-export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity) {
+export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity, audit: AuditService = unavailableAuditService) {
   const app = Fastify({
     trustProxy: config.TRUST_PROXY === 'true',
     bodyLimit: config.INGESTION_MAX_BODY_BYTES,
+    logController: new LogController({ disableRequestLogging: true }),
     logger: config.NODE_ENV === 'test' ? false : {
       level: config.LOG_LEVEL,
       redact: ['req.headers.authorization', 'req.headers["x-api-key"]', 'req.headers.cookie', 'res.headers["set-cookie"]'],
@@ -34,7 +38,7 @@ export async function createApp(config: Config, users: UserRepository, verifier?
   });
   app.decorateRequest('user', null);
   app.decorateRequest('actor', null);
-  installErrorHandler(app);
+  installErrorHandler(app, (request, status, code) => auditRequestFailure(audit, request, status, code));
   await app.register(helmet, {
     contentSecurityPolicy: { directives: {
       defaultSrc: ["'self'"], scriptSrc: ["'self'"],
@@ -79,7 +83,7 @@ export async function createApp(config: Config, users: UserRepository, verifier?
       }
       // Every protected read consults current local access; only the session endpoint writes profile/login data.
       request.user = request.routeOptions.url === '/api/v1/auth/me'
-        ? await users.authenticate(identity)
+        ? await users.authenticate(identity, { requestId: request.id })
         : await users.findBySubject(identity.subject);
       if (!request.user) throw new AppError(403, 'USER_NOT_APPROVED', 'Your account does not have approved access.');
       request.actor = { type: 'USER', user: request.user };
@@ -87,10 +91,12 @@ export async function createApp(config: Config, users: UserRepository, verifier?
     protectedRoutes.get('/api/v1/auth/me', async request => sessionForUser(request.user!));
     protectedRoutes.get('/api/v1/app/config', async request => {
       requireApproved(request.user!);
+      await audit.record(requestAuditEvent(request));
       return publicAppConfig(config);
     });
     protectedRoutes.get('/api/v1/home', async request => {
       requireCapability(request.actor, 'call-for-sites.read');
+      await audit.record(requestAuditEvent(request));
       return { message: `Welcome to ${config.APP_NAME}` };
     });
     await protectedRoutes.register(async admin => {
@@ -102,12 +108,18 @@ export async function createApp(config: Config, users: UserRepository, verifier?
           search: z.string().max(200).default(''),
           status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'DISABLED']).optional(),
         }).strict().parse(request.query);
-        return { ...await users.list(query), page: query.page, pageSize: query.pageSize };
+        const result = await users.list(query);
+        await audit.record({ ...requestAuditEvent(request), metadata: {
+          page: query.page, pageSize: query.pageSize, status: query.status,
+          resultCount: result.users.length, queryHash: createHash('sha256').update(query.search).digest('hex'),
+          queryLength: Array.from(query.search).length,
+        } });
+        return { ...result, page: query.page, pageSize: query.pageSize };
       });
       admin.patch('/api/v1/admin/users/:id', async request => {
         const { id } = z.object({ id: z.uuid() }).parse(request.params);
         const change = changeSchema.parse(request.body);
-        const updated = await users.change(request.user!.id, id, change);
+        const updated = await users.change(request.user!.id, id, change, { requestId: request.id });
         request.log.info({ actorId: request.user!.id, targetId: id, action: change.action, role: updated.role, status: updated.status }, 'User access changed');
         return updated;
       });

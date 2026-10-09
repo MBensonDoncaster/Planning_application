@@ -1,7 +1,8 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ZodError } from 'zod';
 import type { ApiErrorEnvelope, ErrorDetail } from '@planning/contracts';
 import { AppError } from '../shared/errors.js';
+import { safeAuditErrorCode } from '../shared/audit.js';
 
 const safeErrors: Record<number, [string, string]> = {
   400: ['VALIDATION_ERROR', 'Invalid request.'],
@@ -30,8 +31,8 @@ function validationDetails(error: ZodError): ErrorDetail[] {
   }));
 }
 
-export function installErrorHandler(app: FastifyInstance): void {
-  app.setErrorHandler((error, request, reply) => {
+export function installErrorHandler(app: FastifyInstance, onFailure?: (request: FastifyRequest, status: number, code: string) => Promise<void>): void {
+  app.setErrorHandler(async (error, request, reply) => {
     let status = 500;
     let code: string;
     let message: string;
@@ -52,7 +53,8 @@ export function installErrorHandler(app: FastifyInstance): void {
       }
       [code, message] = safeErrors[status];
     }
-    if (status >= 500) request.log.error({ statusCode: status, errorCode: code }, 'Request failed');
+    if (status >= 500) request.log.error({ statusCode: status, errorCode: safeAuditErrorCode(code) }, 'Request failed');
+    if (onFailure) await onFailure(request, status, code);
     const body: ApiErrorEnvelope = { error: { code, message, requestId: request.id, ...(details ? { details } : {}) } };
     // A failed download must be JSON, even if the route already set file headers.
     reply.removeHeader('Content-Disposition');

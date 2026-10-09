@@ -1,3 +1,4 @@
+import { syntheticAudit } from './support/audit.js';
 import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -16,7 +17,7 @@ async function start(status: User['status'] = 'APPROVED', role: User['role'] = '
   const user: User = { id: randomUUID(), subject: 'local:developer', email: 'dev@example.test', displayName: 'Developer', role, status,
     createdAt: new Date(), updatedAt: new Date(), lastLoginAt: null, approvedAt: null, approvedByUserId: null };
   const repo: UserRepository = { async authenticate() { return user; }, async findBySubject(subject) { return subject === user.subject ? user : null; }, async list() { return { users: [user], total: 1 }; }, async change() { return user; }, async ready() {}, async close() {} };
-  const app = await createApp(readConfig({ ...local, ...extra }), repo);
+  const app = await createApp(readConfig({ ...local, ...extra }), repo, undefined, syntheticAudit().audit);
   apps.push(app);
   return app;
 }
