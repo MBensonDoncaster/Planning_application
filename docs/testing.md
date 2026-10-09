@@ -46,6 +46,7 @@ npm.cmd run test:browser
 The command builds the application, starts a loopback-only API serving the built frontend at port 4174, applies all migrations in a fresh isolated schema and seeds synthetic actors. Playwright closes the server and removes its schema through an IPC teardown that also works on Windows. It refuses to reuse an existing server. Reports and failure traces go to ignored `playwright-report/` and `test-results/`.
 
 Current checks cover real shell navigation/reload, database-backed user administration, public configuration and API error contracts. Blocked-account and USER deletion UI checks mock only the session response; backend permission enforcement is tested separately. Business ingestion/search/export acceptance will expand this suite with their implementation tasks. Actual Entra sign-in/logout requires staging checks in [Entra setup](entra.md).
+User administration checks exercise the explicit approve/reject/disable/enable and role endpoints, fixed pages of 50, combined text/status/role filters, confirmations and reopened accounts. Real PostgreSQL checks cover concurrent first registration, duplicate emails, simultaneous administrator removal, exact-identity bootstrap races and atomic audit rollback. Chromium also verifies the account approval, disablement, reopening and rejection lifecycle against the database-backed API.
 
 ## Synthetic fixtures and explicit seeding
 

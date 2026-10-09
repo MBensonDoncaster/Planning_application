@@ -64,10 +64,10 @@ describe('audited HTTP operations', () => {
     const { audit, events } = syntheticAudit();
     const app = await start(repo, audit);
     const targetId = randomUUID();
-    const failed = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${targetId}`, payload: { action: 'disable' } });
+    const failed = await app.inject({ method: 'POST', url: `/api/v1/admin/users/${targetId}/disable` });
     expect(failed.statusCode).toBe(409);
-    expect(events[0]).toMatchObject({ action: 'USER_CHANGE', outcome: 'FAILURE', errorCode: 'LAST_APPROVED_ADMIN', target: { type: 'user', id: targetId } });
-    const invalid = await app.inject({ method: 'PATCH', url: '/api/v1/admin/users/private-contact', payload: { action: 'disable' } });
+    expect(events[0]).toMatchObject({ action: 'USER_DISABLED', outcome: 'DENIED', errorCode: 'LAST_APPROVED_ADMIN', target: { type: 'user', id: targetId } });
+    const invalid = await app.inject({ method: 'POST', url: '/api/v1/admin/users/private-contact/disable' });
     expect(invalid.statusCode).toBe(400);
     expect(events[1]).not.toHaveProperty('target');
     expect(JSON.stringify(events)).not.toContain('private-contact');
@@ -87,7 +87,7 @@ describe('audited HTTP operations', () => {
   it('uses UNKNOWN attribution for parsing failures before authentication and omits raw payloads', async () => {
     const { audit, events } = syntheticAudit();
     const app = await start(fixture().repo, audit);
-    const response = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${randomUUID()}`, headers: { 'content-type': 'application/json' }, payload: '{"contact":"private@example.test",' });
+    const response = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${randomUUID()}/role`, headers: { 'content-type': 'application/json' }, payload: '{"contact":"private@example.test",' });
     expect(response.statusCode).toBe(400);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({ actor: null, outcome: 'FAILURE', errorCode: 'VALIDATION_ERROR', requestId: response.headers['x-request-id'] });
@@ -105,7 +105,7 @@ describe('audited HTTP operations', () => {
     app.addHook('onRequest', async request => {
       vi.spyOn(request.log, 'warn').mockImplementation((...args: unknown[]) => { warnings.push(args); });
     });
-    const response = await app.inject({ url: '/api/v1/admin/users?search=secret-contact', headers: { authorization: 'Bearer secret-token', 'x-api-key': 'secret-key' } });
+    const response = await app.inject({ url: '/api/v1/admin/users?text=secret-contact', headers: { authorization: 'Bearer secret-token', 'x-api-key': 'secret-key' } });
     expect(response.statusCode).toBe(403);
     expect(warnings).toEqual([[{
       requestId: response.headers['x-request-id'], actorType: 'USER', module: 'shared', action: 'USERS_LIST', outcome: 'DENIED', errorCode: 'FORBIDDEN', statusCode: 403, auditPersistence: 'unavailable',
@@ -114,10 +114,10 @@ describe('audited HTTP operations', () => {
   });
   it('records bounded search metadata without persisting the users search text', async () => {
     const { audit, events } = syntheticAudit();
-    const response = await (await start(fixture().repo, audit)).inject('/api/v1/admin/users?search=secret-contact&page=2&pageSize=10&status=APPROVED');
+    const response = await (await start(fixture().repo, audit)).inject('/api/v1/admin/users?text=secret-contact&page=2&pageSize=50&status=APPROVED');
     expect(response.statusCode).toBe(200);
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({ action: 'USERS_LIST', outcome: 'SUCCESS', metadata: { page: 2, pageSize: 10, status: 'APPROVED', resultCount: 1, queryLength: 14, queryHash: expect.stringMatching(/^[a-f0-9]{64}$/) } });
+    expect(events[0]).toMatchObject({ action: 'USERS_LIST', outcome: 'SUCCESS', metadata: { page: 2, pageSize: 50, status: 'APPROVED', resultCount: 1, queryLength: 14, queryHash: expect.stringMatching(/^[a-f0-9]{64}$/) } });
     expect(JSON.stringify(events)).not.toContain('secret-contact');
   });
   it('records an authentication denial without inventing a user actor', async () => {

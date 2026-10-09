@@ -2,7 +2,7 @@ import { syntheticAudit } from './support/audit.js';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { describe, expect, it, beforeAll, afterEach } from 'vitest';
 import { readConfig } from '../src/config/env.js';
-import { createIdentityVerifier } from '../src/plugins/auth.js';
+import { createIdentityVerifier, identityFromClaims } from '../src/plugins/auth.js';
 import { createApp } from '../src/app.js';
 import type { FastifyInstance } from 'fastify';
 import type { UserRepository } from '../src/modules/users/types.js';
@@ -57,7 +57,9 @@ describe('Entra token validation', () => {
   });
   it.each([
     { tid: spa }, { azp: api }, { scp: 'different_scope' }, { scp: undefined }, { oid: undefined }, { ver: '1.0' },
-    { aud: spa }, { iss: 'https://attacker.example' }, { exp: 1 },
+    { aud: spa }, { iss: 'https://attacker.example' }, { exp: 1 }, { nbf: Math.floor(Date.now() / 1000) + 600 },
+    { oid: '------------------------------------' }, { oid: '444444444444-4444-8444-444444444444' },
+    { scp: undefined, roles: ['access_as_user'] }, { iat: undefined }, { exp: undefined }, { nbf: undefined },
   ])('rejects incompatible or expired claims: %j', async claims => {
     // Override standard registered claims after constructing the normal token.
     const signed = await new SignJWT({ ver: '2.0', tid: tenant, oid, azp: spa, scp: 'access_as_user', iss: `https://login.microsoftonline.com/${tenant}/v2.0`, aud: api, iat: Math.floor(Date.now() / 1000), nbf: 0, exp: Math.floor(Date.now() / 1000) + 300, ...claims })
@@ -79,6 +81,35 @@ describe('Entra token validation', () => {
     expect(invalid.json().error.code).toBe('INVALID_CREDENTIALS');
     expect(invalid.json().error.requestId).toBe(invalid.headers['x-request-id']);
     expect(creations).toBe(0);
+  });
+  it('rejects tokens signed using an unpermitted algorithm', async () => {
+    const ec = await generateKeyPair('ES256');
+    const signed = await new SignJWT({ ver: '2.0', tid: tenant, oid, azp: spa, scp: 'access_as_user' })
+      .setProtectedHeader({ alg: 'ES256' }).setIssuer(`https://login.microsoftonline.com/${tenant}/v2.0`)
+      .setAudience(api).setIssuedAt().setNotBefore('0s').setExpirationTime('5m').sign(ec.privateKey);
+    await expect(verify(signed)).rejects.toMatchObject({ statusCode: 401 });
+  });
+  it('accepts both current and replacement tenant signing keys during rollover', async () => {
+    const replacement = await generateKeyPair('RS256');
+    const currentJwk = await exportJWK(keys.publicKey), replacementJwk = await exportJWK(replacement.publicKey);
+    const rolloverVerifier = createIdentityVerifier(config, createLocalJWKSet({ keys: [
+      { ...currentJwk, kid: 'test', alg: 'RS256' }, { ...replacementJwk, kid: 'replacement', alg: 'RS256' },
+    ] }));
+    const replacementToken = await new SignJWT({ ver: '2.0', tid: tenant, oid, azp: spa, scp: 'access_as_user' })
+      .setProtectedHeader({ alg: 'RS256', kid: 'replacement' }).setIssuer(`https://login.microsoftonline.com/${tenant}/v2.0`)
+      .setAudience(api).setIssuedAt().setNotBefore('0s').setExpirationTime('5m').sign(replacement.privateKey);
+    expect((await rolloverVerifier(await token())).subject).toBe(`entra:${tenant}:${oid}`);
+    expect((await rolloverVerifier(replacementToken)).subject).toBe(`entra:${tenant}:${oid}`);
+  });
+  it('uses profile fallbacks and rejects overlong profiles rather than truncating them', () => {
+    const claims = { ver: '2.0', tid: tenant, oid, azp: spa, scp: 'access_as_user' };
+    expect(identityFromClaims(claims, config)).toMatchObject({ email: '', displayName: oid });
+    expect(identityFromClaims({ ...claims, preferred_username: 'fallback@example.test' }, config)).toMatchObject({ email: 'fallback@example.test', displayName: 'fallback@example.test' });
+    expect(identityFromClaims({ ...claims, email: 'primary@example.test', preferred_username: 'fallback@example.test' }, config).email).toBe('primary@example.test');
+    expect(identityFromClaims({ ...claims, name: '😀'.repeat(200) }, config).displayName).toHaveLength(400);
+    for (const profile of [{ email: 'a'.repeat(321) }, { name: 'a'.repeat(201) }, { preferred_username: 'a'.repeat(321) }]) {
+      expect(() => identityFromClaims({ ...claims, ...profile }, config)).toThrow('supported column lengths');
+    }
   });
 
   it('registers and refreshes profiles only through the session endpoint', async () => {

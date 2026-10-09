@@ -17,7 +17,7 @@ export type UserChange = { action: 'approve' | 'reject' | 'disable' | 'enable' }
 export interface UserRepository {
   authenticate(identity: Identity, auditContext?: AuditContext): Promise<User>;
   findBySubject(subject: string): Promise<User | null>;
-  list(query: { page: number; pageSize: number; search: string; status?: Status }): Promise<{ users: User[]; total: number }>;
+  list(query: { page: number; pageSize: number; search: string; status?: Status; role?: Role }): Promise<{ users: User[]; total: number }>;
   change(actorId: string, targetId: string, change: UserChange, auditContext?: AuditContext): Promise<User>;
   ready(): Promise<void>;
   close(): Promise<void>;

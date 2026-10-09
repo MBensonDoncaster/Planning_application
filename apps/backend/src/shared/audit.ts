@@ -3,7 +3,9 @@ import type { Actor } from './actors.js';
 import { AppError } from './errors.js';
 
 export interface AuditContext { requestId: string }
-export type AuditAction = 'SESSION_SYNC' | 'APP_CONFIG_READ' | 'HOME_READ' | 'USERS_LIST' | 'USER_CHANGE' | 'REQUEST_FAILED';
+export type AuditAction = 'SESSION_SYNC' | 'APP_CONFIG_READ' | 'HOME_READ' | 'USERS_LIST' | 'USER_CHANGE' | 'REQUEST_FAILED'
+  | 'USER_CREATED' | 'USER_SIGNED_IN' | 'USER_APPROVED' | 'USER_REJECTED' | 'USER_DISABLED'
+  | 'USER_REOPENED' | 'USER_ROLE_CHANGED' | 'ADMIN_BOOTSTRAPPED';
 export interface AuditEventInput extends AuditContext {
   actor: Actor | null;
   module: 'shared' | 'call-for-sites';
@@ -20,7 +22,11 @@ export interface AuditWriter {
 export interface AuditService { record(event: AuditEventInput, writer?: AuditWriter): Promise<void> }
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const actions: readonly AuditAction[] = ['SESSION_SYNC', 'APP_CONFIG_READ', 'HOME_READ', 'USERS_LIST', 'USER_CHANGE', 'REQUEST_FAILED'];
+const actions: readonly AuditAction[] = [
+  'SESSION_SYNC', 'APP_CONFIG_READ', 'HOME_READ', 'USERS_LIST', 'USER_CHANGE', 'REQUEST_FAILED',
+  'USER_CREATED', 'USER_SIGNED_IN', 'USER_APPROVED', 'USER_REJECTED', 'USER_DISABLED',
+  'USER_REOPENED', 'USER_ROLE_CHANGED', 'ADMIN_BOOTSTRAPPED',
+];
 const safeErrorCodes = new Set([
   'AUTHENTICATION_REQUIRED', 'INVALID_CREDENTIALS', 'USER_DISABLED', 'USER_NOT_APPROVED', 'FORBIDDEN',
   'NOT_FOUND', 'USER_NOT_FOUND', 'INVALID_TRANSITION', 'LAST_APPROVED_ADMIN', 'UNSUPPORTED_MEDIA_TYPE',
@@ -44,7 +50,7 @@ function metadataFor(event: AuditEventInput): Prisma.InputJsonObject {
     const value = source[key];
     if (typeof value === 'string' && values.includes(value)) metadata[key] = value;
   };
-  if (event.action === 'USER_CHANGE') {
+  if (['USER_CHANGE', 'USER_CREATED', 'USER_SIGNED_IN', 'USER_APPROVED', 'USER_REJECTED', 'USER_DISABLED', 'USER_REOPENED', 'USER_ROLE_CHANGED', 'ADMIN_BOOTSTRAPPED'].includes(event.action)) {
     choice('change', ['approve', 'reject', 'disable', 'enable', 'role']);
     choice('role', ['USER', 'ADMIN']);
     choice('status', ['PENDING', 'APPROVED', 'REJECTED', 'DISABLED']);
@@ -54,6 +60,7 @@ function metadataFor(event: AuditEventInput): Prisma.InputJsonObject {
     integer('resultCount', 0, Number.MAX_SAFE_INTEGER);
     integer('queryLength', 0, Number.MAX_SAFE_INTEGER);
     choice('status', ['PENDING', 'APPROVED', 'REJECTED', 'DISABLED']);
+    choice('role', ['USER', 'ADMIN']);
     if (typeof source.queryHash === 'string' && /^[a-f0-9]{64}$/.test(source.queryHash)) metadata.queryHash = source.queryHash;
   } else if (event.action === 'REQUEST_FAILED') {
     integer('statusCode', 400, 599);

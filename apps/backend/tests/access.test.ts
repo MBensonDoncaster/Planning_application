@@ -57,7 +57,7 @@ describe('server-side access control', () => {
       expect((await app.inject('/api/v1/admin/users')).statusCode).toBe(adminAllowed ? 200 : 403);
       // A valid UUID with no local target distinguishes an authorised write (404)
       // from a denied request (403), without changing access state.
-      const write = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${randomUUID()}`, payload: { action: 'approve' } });
+      const write = await app.inject({ method: 'POST', url: `/api/v1/admin/users/${randomUUID()}/approve` });
       expect(write.statusCode).toBe(adminAllowed ? 404 : 403);
     },
   );
@@ -101,13 +101,13 @@ describe('server-side access control', () => {
     const app = await start(repo);
     expect((await app.inject('/api/v1/home')).statusCode).toBe(200);
     expect((await app.inject('/api/v1/admin/users')).statusCode).toBe(403);
-    expect((await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${randomUUID()}`, payload: { action: 'approve' } })).statusCode).toBe(403);
+    expect((await app.inject({ method: 'POST', url: `/api/v1/admin/users/${randomUUID()}/approve` })).statusCode).toBe(403);
   });
   it('assigns a role separately from approval and records the approving admin', async () => {
     const { user, repo, records } = fixture({ ...baseUser(), role: 'ADMIN', status: 'APPROVED' });
     const target = baseUser(); records.set(target.id, target);
     const app = await start(repo);
-    const change = (payload: unknown) => app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${target.id}`, payload: payload as object });
+    const change = (payload: { action: string; role?: string }) => app.inject({ method: payload.action === 'role' ? 'PATCH' : 'POST', url: `/api/v1/admin/users/${target.id}/${payload.action}`, ...(payload.action === 'role' ? { payload: { role: payload.role } } : {}) });
     expect((await change({ action: 'role', role: 'ADMIN' })).json().status).toBe('PENDING');
     const approved = (await change({ action: 'approve' })).json();
     expect(approved.status).toBe('APPROVED');
@@ -121,7 +121,7 @@ describe('server-side access control', () => {
     const { user, repo } = fixture({ ...baseUser(), role: 'ADMIN', status: 'APPROVED' });
     const app = await start(repo);
     for (const payload of [{ action: 'disable' }, { action: 'role', role: 'USER' }]) {
-      const result = await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${user.id}`, payload });
+      const result = await app.inject({ method: payload.action === 'role' ? 'PATCH' : 'POST', url: `/api/v1/admin/users/${user.id}/${payload.action}`, ...(payload.action === 'role' ? { payload: { role: payload.role } } : {}) });
       expect(result.statusCode).toBe(409);
       expect(result.json().error.code).toBe('LAST_APPROVED_ADMIN');
     }
@@ -133,11 +133,26 @@ describe('server-side access control', () => {
     user.status = 'DISABLED';
     expect((await app.inject('/api/v1/admin/users')).statusCode).toBe(403);
   });
+  it('validates the explicit action contracts and fixed pagination before writes', async () => {
+    const { user, repo, records } = fixture({ ...baseUser(), role: 'ADMIN', status: 'APPROVED' });
+    const target = baseUser(); records.set(target.id, target);
+    const app = await start(repo);
+    const listing = await app.inject('/api/v1/admin/users?page=2&status=PENDING&role=USER&text=developer');
+    expect(listing.json()).toMatchObject({ page: 2, pageSize: 50 });
+    for (const query of ['pageSize=20', 'search=legacy', 'role=OWNER', `text=${'a'.repeat(201)}`]) {
+      expect((await app.inject(`/api/v1/admin/users?${query}`)).statusCode).toBe(400);
+    }
+    expect((await app.inject({ method: 'POST', url: `/api/v1/admin/users/${target.id}/approve`, payload: {} })).statusCode).toBe(400);
+    expect(target.status).toBe('PENDING');
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${target.id}`, payload: { action: 'approve' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${target.id}/role`, payload: { role: 'ADMIN', status: 'APPROVED' } })).statusCode).toBe(400);
+    expect(user.status).toBe('APPROVED');
+  });
   it('rejects invalid changes and returns readiness failures without database details', async () => {
     const { user, repo } = fixture({ ...baseUser(), role: 'ADMIN', status: 'APPROVED' });
     repo.ready = async () => { throw new Error('database credentials'); };
     const app = await start(repo);
-    expect((await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${user.id}`, payload: { action: 'role', role: 'SUPERADMIN' } })).statusCode).toBe(400);
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/admin/users/${user.id}/role`, payload: { role: 'SUPERADMIN' } })).statusCode).toBe(400);
     const result = await app.inject('/health/ready');
     expect(result.statusCode).toBe(503);
     expect(result.body).not.toContain('credentials');
@@ -151,5 +166,21 @@ describe('configuration', () => {
   });
   it('requires per-app Entra identifiers', () => {
     expect(() => readConfig({ AUTH_MODE: 'ENTRA', DATABASE_URL: 'postgresql://test:test@localhost/test' })).toThrow('ENTRA_TENANT_ID');
+  });
+});
+
+describe('user transition rules', () => {
+  it.each(['DISABLED', 'REJECTED'] as const)('reopens %s to pending and requires fresh separate approval', status => {
+    const target = { ...baseUser(), role: 'ADMIN' as const, status, approvedAt: new Date(), approvedByUserId: randomUUID() };
+    expect(() => applyChange(target, { action: 'approve' }, 2, 'actor')).toThrow('not available');
+    const reopened = { ...target, ...applyChange(target, { action: 'enable' }, 2, 'actor') };
+    expect(reopened).toMatchObject({ role: 'ADMIN', status: 'PENDING', approvedAt: null, approvedByUserId: null });
+    expect(() => requireAdmin(reopened)).toThrow();
+    expect(applyChange(reopened, { action: 'approve' }, 2, 'fresh-actor')).toMatchObject({ status: 'APPROVED', approvedByUserId: 'fresh-actor', approvedAt: expect.any(Date) });
+  });
+  it('role changes preserve status and approval history while last-admin demotion is blocked', () => {
+    const target = { ...baseUser(), status: 'APPROVED' as const, approvedAt: new Date(), approvedByUserId: randomUUID() };
+    expect(applyChange(target, { action: 'role', role: 'ADMIN' }, 1, 'actor')).toEqual({ role: 'ADMIN' });
+    expect(() => applyChange({ ...target, role: 'ADMIN' }, { action: 'role', role: 'USER' }, 1, 'actor')).toThrow('last approved');
   });
 });
