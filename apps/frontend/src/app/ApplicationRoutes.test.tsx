@@ -25,6 +25,12 @@ describe('application routes and navigation', () => {
     expect(await screen.findByRole('heading', { name: 'Browse submissions' })).toBeVisible();
     expect(screen.getByText('Dates are shown in America/New_York.')).toBeVisible();
     expect(screen.queryByRole('link', { name: 'Delete a submission' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Paste JSON' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Upload files' })).toHaveAttribute('href', '/call-for-sites/upload');
+  });
+  it('no longer exposes the paste JSON page', async () => {
+    show('/call-for-sites/paste', { ...user, role: 'ADMIN' });
+    expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeVisible();
   });
   it.each(MODULE_REGISTRY[0].routes)('renders the prescribed $id route', async route => {
     show(route.path.replace(':id', 'record-1'), { ...user, role: 'ADMIN' });

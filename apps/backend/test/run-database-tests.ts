@@ -6,7 +6,7 @@ import { requireTestDatabase } from './support/database.js';
 
 requireTestDatabase(process.env.TEST_DATABASE_URL);
 const cli = join(dirname(createRequire(import.meta.url).resolve('vitest/package.json')), 'vitest.mjs');
-const result = spawnSync(process.execPath, [cli, 'run', 'tests/database.integration.test.ts'], {
+const result = spawnSync(process.execPath, [cli, 'run', '.integration.test.ts'], {
   stdio: 'inherit', env: process.env,
 });
 if (result.error) throw result.error;

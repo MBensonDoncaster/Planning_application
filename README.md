@@ -2,14 +2,14 @@
 
 The Planning application starts from a provider-independent template: React, Material UI and TypeScript in the browser; a Fastify API; and PostgreSQL accessed through Prisma. Frontend and API share one origin in the container. Use Node.js 24.21.0 (`.nvmrc`) and npm 11.19.0 (`packageManager`) for host development, matching the pinned Docker image. The supported engine ranges remain Node.js 24 and npm 11.
 
-The only application table is `users`. Prisma also maintains its own migration-history table. There are no example business features, uploads or cloud-provider dependencies.
+Shared storage now includes `users`, `integrations`, `api_keys`, `audit_events`, `idempotency_records` and `rate_limit_buckets`. Prisma also maintains its migration-history table. Integration/audit/replay/throttling services are implemented in subsequent tasks; there are currently no business submission tables or cloud-provider dependencies.
 
 ## Included behaviour
 
 - Microsoft Entra SSO using a single tenant in Microsoft's public cloud.
 - First successful authenticated API request creates a `USER` / `PENDING` account, keyed by `entra:<tenant-id>:<object-id>`. Later requests refresh profile details without replacing the local role or status.
 - Pending accounts see an awaiting-approval screen. Rejected and disabled accounts see an explanation. None can use protected application functions.
-- Approved users land on Call for Sites at `/call-for-sites`. Browse, search, details, upload, paste and administrator deletion routes currently display a shell while their workflows are implemented. Approved administrators also get user administration at `/admin/users`, plus the confirmed integrations and audit route shells.
+- Approved users land on Call for Sites at `/call-for-sites`. Browse, search, details, file upload and administrator deletion routes currently display a shell while their workflows are implemented. Approved administrators also get user administration at `/admin/users`, plus the confirmed integrations and audit route shells.
 - User administration supports search, status filtering, pagination, approval, rejection, role assignment, disabling and reopening access requests. Reopening a rejected or disabled account returns it to `PENDING`; an administrator must approve it again.
 - Approval records the administrator and timestamp. Role assignment is separate from approval. Entra directory roles do not grant local permissions.
 - The API checks local role and status on every protected request. Database transactions serialize administrative changes so concurrent requests cannot disable or demote the last approved administrator.
@@ -94,7 +94,7 @@ This generates Prisma types, checks TypeScript, runs tests, lints and builds bot
 
 Check dependency security with `npm.cmd run audit:security` (requires access to the npm registry). The root package overrides Prisma's `deepmerge-ts` and `mysql2` dependencies to patched versions. Keep these overrides until Prisma supplies patched versions itself. After any dependency refresh, inspect the lockfile and run the security audit and `npm.cmd run verify`; npm workspace updates can ignore overrides and select vulnerable versions. Use `npm.cmd ci` to install the reviewed lockfile. A passing audit covers known npm advisories at the time of the check; container base images need separate updates and scanning.
 
-The [initial committed migration](apps/backend/prisma/migrations/20261008000000_initial_users/migration.sql) defines the user table. Apply committed migrations using `npm.cmd run migrate:deploy`; inspect them using `npm.cmd run migrate:status`. For a deliberate schema change, edit `apps/backend/prisma/schema.prisma`, then run:
+The committed migration chain defines users and the shared integration/key/audit/idempotency/rate storage. It preserves existing user access data when upgrading. Apply committed migrations using `npm.cmd run migrate:deploy`; inspect them using `npm.cmd run migrate:status`. PostgreSQL check constraints and the partial active-integration-name index are maintained in the migration SQL alongside Prisma models. For a deliberate schema change, edit `apps/backend/prisma/schema.prisma`, then run:
 
 ```powershell
 npm.cmd run prisma:migrate:dev --workspace=@planning/backend -- --name describe_change

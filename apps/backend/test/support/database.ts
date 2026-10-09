@@ -25,10 +25,14 @@ export function requireTestDatabase(value: string | undefined): URL {
   return url;
 }
 
-export async function deployMigrations(connectionString: string) {
-  await execute(process.execPath, [require.resolve('prisma/build/index.js'), 'migrate', 'deploy'], {
+export async function runPrismaMigration(connectionString: string, args: string[]) {
+  await execute(process.execPath, [require.resolve('prisma/build/index.js'), ...args], {
     cwd: backendDirectory, env: { ...process.env, DATABASE_URL: connectionString }, timeout: 60_000,
   });
+}
+
+export async function deployMigrations(connectionString: string) {
+  await runPrismaMigration(connectionString, ['migrate', 'deploy']);
 }
 
 export async function createTestDatabase(value = process.env.TEST_DATABASE_URL, migrate = deployMigrations) {
