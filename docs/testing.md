@@ -58,6 +58,10 @@ Audit review checks cover ADMIN-only access, strict query validation, inclusive/
 
 The migration chain includes all nine `cfs_` tables. PostgreSQL checks exercise the generated Prisma client, human/integration provenance, key ownership, parent-scoped child order, cross-submission foreign keys, duplicate reference/payload preservation, search vectors and GIN indexes, and deletion cascades that retain shared audit/replay history. The runtime grant script gives explicit module CRUD privileges while preserving append-only audit and shared actor restrictions. These checks establish storage behavior; atomic ingestion and complete search preparation are delivered by later tasks.
 
+## Submission object validation
+
+Shared browser/server validation covers strict UTF-8 with an optional BOM, inclusive original byte limits, container nesting, JSONB-compatible Unicode, offset-aware calendar timestamps, complete numeric coordinates and non-negative areas. Unknown and prototype-like own keys remain source data. HTTP tests verify safe field paths, request IDs, data above 100 KiB and exact-limit exponent notation. Fastify collects bounded buffers before shared JSON validation; future ingestion routes must use `validateParsedSubmissionBody` after this parser so reserialized numbers do not change the source byte budget. Untrusted in-memory objects use `validateSubmissionBody`, which checks serialized size. Geometry and extraction behavior have separate later verification gates.
+
 ## Synthetic fixtures and explicit seeding
 
 The exact specification fixture is committed at `apps/backend/test/fixtures/call-for-sites/application.json`. It contains only synthetic applicant/site data. Use this common fixture for upcoming extraction, ingestion and export tests.

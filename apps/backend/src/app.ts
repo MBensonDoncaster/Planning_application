@@ -21,6 +21,7 @@ import type { IntegrationService } from './modules/integrations/service.js';
 import { registerIntegrationRoutes } from './modules/integrations/routes.js';
 import type { AuditReviewService } from './modules/audit/service.js';
 import { registerAuditReviewRoutes } from './modules/audit/routes.js';
+import { installJsonParser } from './plugins/json.js';
 
 declare module 'fastify' {
   interface FastifyRequest { user: User | null; actor: Actor | null }
@@ -37,6 +38,7 @@ export async function createApp(config: Config, users: UserRepository, verifier?
     },
   });
   app.decorateRequest('user', null);
+  installJsonParser(app, { maxBytes: config.INGESTION_MAX_BODY_BYTES, maxDepth: config.JSON_MAX_DEPTH });
   app.decorateRequest('actor', null);
   installErrorHandler(app, (request, status, code) => auditRequestFailure(audit, request, status, code));
   await app.register(helmet, {
