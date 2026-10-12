@@ -59,7 +59,10 @@ describe.skipIf(!testUrl)('shared PostgreSQL storage and runtime privileges', ()
 
   it('deploys the specified shared tables and stores no plaintext secret column', async () => {
     const tables = await database.pool.query('SELECT table_name FROM information_schema.tables WHERE table_schema=$1 ORDER BY table_name', [database.schema]);
-    expect(tables.rows.map(row => row.table_name)).toEqual(['_prisma_migrations', 'api_keys', 'audit_events', 'idempotency_records', 'integrations', 'rate_limit_buckets', 'users']);
+    expect(tables.rows.map(row => row.table_name)).toEqual(['_prisma_migrations', 'api_keys', 'audit_events',
+      'cfs_boundaries', 'cfs_designations', 'cfs_pre_assessments', 'cfs_properties', 'cfs_proposals',
+      'cfs_reporting_fields', 'cfs_responses', 'cfs_search_documents', 'cfs_submissions',
+      'idempotency_records', 'integrations', 'rate_limit_buckets', 'users']);
     const columns = await database.pool.query('SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2', [database.schema, 'api_keys']);
     expect(columns.rows.map(row => row.column_name)).toContain('secret_digest');
     expect(columns.rows.map(row => row.column_name)).not.toContain('secret');

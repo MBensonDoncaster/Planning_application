@@ -21,22 +21,23 @@ enum UserStatus {
 }
 
 model User {
-  id                  String        @id @default(uuid()) @db.Uuid
-  ssoSubject          String        @unique @map("sso_subject") @db.VarChar(255)
-  email               String        @db.VarChar(320)
-  displayName         String        @map("display_name") @db.VarChar(200)
-  role                UserRole      @default(USER)
-  status              UserStatus    @default(PENDING)
-  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt           DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
-  lastLoginAt         DateTime?     @map("last_login_at") @db.Timestamptz(3)
-  approvedAt          DateTime?     @map("approved_at") @db.Timestamptz(3)
-  approvedByUserId    String?       @map("approved_by_user_id") @db.Uuid
-  approvedBy          User?         @relation("Approval", fields: [approvedByUserId], references: [id], onDelete: SetNull)
-  approvedUsers       User[]        @relation("Approval")
-  createdIntegrations Integration[] @relation("IntegrationCreator")
-  createdApiKeys      ApiKey[]      @relation("KeyCreator")
-  revokedApiKeys      ApiKey[]      @relation("KeyRevoker")
+  id                  String          @id @default(uuid()) @db.Uuid
+  ssoSubject          String          @unique @map("sso_subject") @db.VarChar(255)
+  email               String          @db.VarChar(320)
+  displayName         String          @map("display_name") @db.VarChar(200)
+  role                UserRole        @default(USER)
+  status              UserStatus      @default(PENDING)
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+  lastLoginAt         DateTime?       @map("last_login_at") @db.Timestamptz(3)
+  approvedAt          DateTime?       @map("approved_at") @db.Timestamptz(3)
+  approvedByUserId    String?         @map("approved_by_user_id") @db.Uuid
+  approvedBy          User?           @relation("Approval", fields: [approvedByUserId], references: [id], onDelete: SetNull)
+  approvedUsers       User[]          @relation("Approval")
+  createdIntegrations Integration[]   @relation("IntegrationCreator")
+  createdApiKeys      ApiKey[]        @relation("KeyCreator")
+  revokedApiKeys      ApiKey[]        @relation("KeyRevoker")
+  cfsSubmissions      CfsSubmission[]
 
   @@index([status])
   @@index([role])
@@ -44,37 +45,40 @@ model User {
 }
 
 model Integration {
-  id              String   @id @default(uuid()) @db.Uuid
-  name            String   @db.Text
-  description     String?  @db.Text
-  enabled         Boolean  @default(true)
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
-  createdByUserId String   @map("created_by_user_id") @db.Uuid
-  createdBy       User     @relation("IntegrationCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  id              String          @id @default(uuid()) @db.Uuid
+  name            String          @db.Text
+  description     String?         @db.Text
+  enabled         Boolean         @default(true)
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdByUserId String          @map("created_by_user_id") @db.Uuid
+  createdBy       User            @relation("IntegrationCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
   keys            ApiKey[]
+  cfsSubmissions  CfsSubmission[]
 
   // The SQL migration adds unique active names through a partial index.
   @@map("integrations")
 }
 
 model ApiKey {
-  id              String      @id @default(uuid()) @db.Uuid
-  integrationId   String      @map("integration_id") @db.Uuid
-  integration     Integration @relation(fields: [integrationId], references: [id], onDelete: Restrict)
-  label           String      @db.Text
-  publicPrefix    String      @unique(map: "api_keys_public_prefix_key") @map("public_prefix") @db.Text
-  secretDigest    String      @unique(map: "api_keys_secret_digest_key") @map("secret_digest") @db.Text
-  capabilities    String[]    @db.Text
-  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz(3)
-  expiresAt       DateTime    @map("expires_at") @db.Timestamptz(3)
-  revokedAt       DateTime?   @map("revoked_at") @db.Timestamptz(3)
-  lastUsedAt      DateTime?   @map("last_used_at") @db.Timestamptz(3)
-  createdByUserId String      @map("created_by_user_id") @db.Uuid
-  createdBy       User        @relation("KeyCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
-  revokedByUserId String?     @map("revoked_by_user_id") @db.Uuid
-  revokedBy       User?       @relation("KeyRevoker", fields: [revokedByUserId], references: [id], onDelete: Restrict)
+  id              String          @id @default(uuid()) @db.Uuid
+  integrationId   String          @map("integration_id") @db.Uuid
+  integration     Integration     @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+  label           String          @db.Text
+  publicPrefix    String          @unique(map: "api_keys_public_prefix_key") @map("public_prefix") @db.Text
+  secretDigest    String          @unique(map: "api_keys_secret_digest_key") @map("secret_digest") @db.Text
+  capabilities    String[]        @db.Text
+  createdAt       DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt       DateTime        @map("expires_at") @db.Timestamptz(3)
+  revokedAt       DateTime?       @map("revoked_at") @db.Timestamptz(3)
+  lastUsedAt      DateTime?       @map("last_used_at") @db.Timestamptz(3)
+  createdByUserId String          @map("created_by_user_id") @db.Uuid
+  createdBy       User            @relation("KeyCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  revokedByUserId String?         @map("revoked_by_user_id") @db.Uuid
+  revokedBy       User?           @relation("KeyRevoker", fields: [revokedByUserId], references: [id], onDelete: Restrict)
+  cfsSubmissions  CfsSubmission[]
 
+  @@unique([id, integrationId], map: "api_keys_id_integration_key")
   @@index([integrationId, createdAt(sort: Desc), id(sort: Desc)], map: "api_keys_integration_created_idx")
   @@map("api_keys")
 }
@@ -168,4 +172,196 @@ model RateLimitBucket {
   @@id([scope, subjectDigest, windowStart])
   @@index([expiresAt], map: "rate_limit_buckets_expiry_idx")
   @@map("rate_limit_buckets")
+}
+
+model CfsSubmission {
+  id                 String               @id @default(uuid()) @db.Uuid
+  referenceNumber    String               @default("") @map("reference_number") @db.Text
+  description        String               @default("") @db.Text
+  submittedAt        DateTime?            @map("submitted_at") @db.Timestamptz(3)
+  organisation       String               @default("") @db.Text
+  source             String               @default("") @db.Text
+  rawJson            Json                 @map("raw_json") @db.JsonB
+  receivedAt         DateTime             @default(now()) @map("received_at") @db.Timestamptz(3)
+  actorType          IdempotencyActorType @map("actor_type")
+  submittedByUserId  String?              @map("submitted_by_user_id") @db.Uuid
+  submittedBy        User?                @relation(fields: [submittedByUserId], references: [id], onDelete: Restrict)
+  integrationId      String?              @map("integration_id") @db.Uuid
+  integration        Integration?         @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+  apiKeyId           String?              @map("api_key_id") @db.Uuid
+  apiKey             ApiKey?              @relation(fields: [apiKeyId, integrationId], references: [id, integrationId], onDelete: Restrict)
+  ingestionChannel   IngestionChannel     @map("ingestion_channel")
+  inputFormatVersion String               @map("input_format_version") @db.Text
+  mappingVersion     String               @map("mapping_version") @db.Text
+  warnings           Json                 @default("[]") @db.JsonB
+  properties         CfsProperty[]
+  proposals          CfsProposal[]
+  responses          CfsResponse[]
+  designations       CfsDesignation[]
+  boundaries         CfsBoundary[]
+  preAssessments     CfsPreAssessment[]
+  reportingFields    CfsReportingFields?
+  searchDocuments    CfsSearchDocument[]
+
+  @@index([receivedAt(sort: Desc), id(sort: Desc)], map: "cfs_submissions_received_idx")
+  @@index([submittedAt], map: "cfs_submissions_submitted_idx")
+  @@index([referenceNumber], map: "cfs_submissions_reference_idx")
+  @@index([submittedByUserId], map: "cfs_submissions_user_idx")
+  @@index([integrationId], map: "cfs_submissions_integration_idx")
+  @@index([apiKeyId, integrationId], map: "cfs_submissions_key_idx")
+  @@map("cfs_submissions")
+}
+
+model CfsProperty {
+  id                      String           @id @default(uuid()) @db.Uuid
+  submissionId            String           @map("submission_id") @db.Uuid
+  submission              CfsSubmission    @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  propertyIndex           Int              @map("property_index")
+  address                 String           @default("") @db.Text
+  postcode                String?          @db.Text
+  postcodeArea            String?          @map("postcode_area") @db.Text
+  uprn                    String?          @db.Text
+  usrn                    String?          @db.Text
+  ward                    String?          @db.Text
+  region                  String?          @db.Text
+  localAuthorityDistrict  String?          @map("local_authority_district") @db.Text
+  propertyType            String?          @map("property_type") @db.Text
+  propertyTypeDescription String?          @map("property_type_description") @db.Text
+  latitude                Float?           @db.DoublePrecision
+  longitude               Float?           @db.DoublePrecision
+  x                       Float?           @db.DoublePrecision
+  y                       Float?           @db.DoublePrecision
+  town                    String?          @db.Text
+  street                  String?          @db.Text
+  designations            CfsDesignation[]
+  boundaries              CfsBoundary[]
+
+  @@unique([submissionId, propertyIndex], map: "cfs_properties_order_key")
+  @@unique([id, submissionId], map: "cfs_properties_owner_key")
+  @@index([postcodeArea], map: "cfs_properties_postcode_area_idx")
+  @@map("cfs_properties")
+}
+
+model CfsProposal {
+  id            String        @id @default(uuid()) @db.Uuid
+  submissionId  String        @map("submission_id") @db.Uuid
+  submission    CfsSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  proposalIndex Int           @map("proposal_index")
+  description   String        @default("") @db.Text
+  projectTypes  Json          @default("[]") @map("project_types") @db.JsonB
+  boundaries    CfsBoundary[]
+
+  @@unique([submissionId, proposalIndex], map: "cfs_proposals_order_key")
+  @@unique([id, submissionId], map: "cfs_proposals_owner_key")
+  @@map("cfs_proposals")
+}
+
+model CfsResponse {
+  id            String        @id @default(uuid()) @db.Uuid
+  submissionId  String        @map("submission_id") @db.Uuid
+  submission    CfsSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  question      String        @db.Text
+  answer        String        @db.Text
+  metadataId    String?       @map("metadata_id") @db.Text
+  questionIndex Int           @map("question_index")
+  responseIndex Int           @map("response_index")
+
+  @@unique([submissionId, questionIndex, responseIndex], map: "cfs_responses_order_key")
+  @@map("cfs_responses")
+}
+
+model CfsDesignation {
+  id               String        @id @default(uuid()) @db.Uuid
+  submissionId     String        @map("submission_id") @db.Uuid
+  submission       CfsSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  propertyId       String?       @map("property_id") @db.Uuid
+  property         CfsProperty?  @relation(fields: [propertyId, submissionId], references: [id, submissionId], onDelete: Cascade)
+  designationIndex Int           @map("designation_index")
+  value            String        @default("") @db.Text
+  description      String        @default("") @db.Text
+  intersects       Boolean       @default(false)
+  entities         Json?         @db.JsonB
+
+  // SQL also enforces submission/order uniqueness for unassociated rows.
+  @@unique([propertyId, designationIndex], map: "cfs_designations_property_order_key")
+  @@index([submissionId], map: "cfs_designations_submission_idx")
+  @@index([propertyId, submissionId], map: "cfs_designations_property_idx")
+  @@map("cfs_designations")
+}
+
+model CfsBoundary {
+  id                 String        @id @default(uuid()) @db.Uuid
+  submissionId       String        @map("submission_id") @db.Uuid
+  submission         CfsSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  propertyId         String?       @map("property_id") @db.Uuid
+  property           CfsProperty?  @relation(fields: [propertyId, submissionId], references: [id, submissionId], onDelete: Cascade)
+  proposalId         String?       @map("proposal_id") @db.Uuid
+  proposal           CfsProposal?  @relation(fields: [proposalId, submissionId], references: [id, submissionId], onDelete: Cascade)
+  boundaryIndex      Int           @map("boundary_index")
+  boundaryType       String        @map("boundary_type") @db.Text
+  rawGeoJson         Json          @map("raw_geo_json") @db.JsonB
+  squareMetres       Float?        @map("square_metres") @db.DoublePrecision
+  hectares           Float?        @db.DoublePrecision
+  exportable         Boolean       @default(false)
+  validationWarnings Json          @default("[]") @map("validation_warnings") @db.JsonB
+
+  @@unique([propertyId, boundaryIndex], map: "cfs_boundaries_property_order_key")
+  @@unique([proposalId, boundaryIndex], map: "cfs_boundaries_proposal_order_key")
+  @@index([submissionId], map: "cfs_boundaries_submission_idx")
+  @@index([propertyId, submissionId], map: "cfs_boundaries_property_idx")
+  @@index([proposalId, submissionId], map: "cfs_boundaries_proposal_idx")
+  @@map("cfs_boundaries")
+}
+
+model CfsPreAssessment {
+  id              String        @id @default(uuid()) @db.Uuid
+  submissionId    String        @map("submission_id") @db.Uuid
+  submission      CfsSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  assessmentIndex Int           @map("assessment_index")
+  value           String        @default("") @db.Text
+  description     String        @default("") @db.Text
+
+  @@unique([submissionId, assessmentIndex], map: "cfs_pre_assessments_order_key")
+  @@map("cfs_pre_assessments")
+}
+
+model CfsReportingFields {
+  submissionId             String        @id @map("submission_id") @db.Uuid
+  submission               CfsSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  siteName                 String?       @map("site_name") @db.Text
+  currentUse               String?       @map("current_use") @db.Text
+  applicantRole            String?       @map("applicant_role") @db.Text
+  ownerCount               Int?          @map("owner_count")
+  previouslyDeveloped      Boolean?      @map("previously_developed")
+  previouslyPromoted       Boolean?      @map("previously_promoted")
+  previousPlanningHistory  Boolean?      @map("previous_planning_history")
+  proposedUses             Json?         @map("proposed_uses") @db.JsonB
+  mixedUse                 Boolean?      @map("mixed_use")
+  publicHighwayAccess      Boolean?      @map("public_highway_access")
+  accessDetails            String?       @map("access_details") @db.Text
+  developmentStart         String?       @map("development_start") @db.Text
+  developerInterest        String?       @map("developer_interest") @db.Text
+  viabilityIssues          Boolean?      @map("viability_issues")
+  abnormalCosts            Boolean?      @map("abnormal_costs")
+  constraintsInvestigation String?       @map("constraints_investigation") @db.Text
+  otherInformation         String?       @map("other_information") @db.Text
+  contactDetails           String?       @map("contact_details") @db.Text
+  declarationConfirmed     Boolean?      @map("declaration_confirmed")
+  anticipatedScale         String?       @map("anticipated_scale") @db.Text
+
+  @@map("cfs_reporting_fields")
+}
+
+model CfsSearchDocument {
+  submissionId  String                  @map("submission_id") @db.Uuid
+  submission    CfsSubmission           @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  chunkIndex    Int                     @map("chunk_index")
+  searchText    String                  @map("search_text") @db.Text
+  englishVector Unsupported("tsvector") @default(dbgenerated()) @map("english_vector")
+  simpleVector  Unsupported("tsvector") @default(dbgenerated()) @map("simple_vector")
+
+  @@id([submissionId, chunkIndex])
+  @@index([englishVector], type: Gin, map: "cfs_search_documents_english_idx")
+  @@index([simpleVector], type: Gin, map: "cfs_search_documents_simple_idx")
+  @@map("cfs_search_documents")
 }
