@@ -1,6 +1,7 @@
 export * from './application.js';
 export * from './session.js';
 export * from './integrations.js';
+export * from './audit.js';
 
 export interface ErrorDetail {
   path: string;

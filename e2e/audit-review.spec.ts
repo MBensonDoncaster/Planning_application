@@ -1,0 +1,31 @@
+import { test, expect } from '@playwright/test';
+
+test('administrator filters real audit history and reviews retained details', async ({ page, request }) => {
+  const fixture = await request.get('/api/v1/admin/users?page=1');
+  expect(fixture.status()).toBe(200);
+  const requestId = fixture.headers()['x-request-id'];
+  expect(requestId).toBeTruthy();
+  await page.goto('/admin/audit');
+  await expect(page.getByRole('heading', { name: 'Audit', exact: true })).toBeVisible();
+  await page.getByLabel('Action', { exact: true }).fill('USERS_LIST');
+  await page.getByRole('button', { name: 'Apply filters' }).click();
+  const table = page.getByRole('table', { name: 'Audit events' });
+  await expect(table).toBeVisible();
+  const response = await request.get('/api/v1/admin/audit-events?action=USERS_LIST&page=1');
+  expect(response.status()).toBe(200);
+  const events = (await response.json()).events;
+  const event = events.find((item: { requestId: string }) => item.requestId === requestId);
+  expect(event).toBeTruthy();
+  await table.getByRole('button', { name: `View event ${event.id}` }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.getByText(`Request ID: ${requestId}`, { exact: true })).toBeVisible();
+  await expect(dialog.getByText('Action: USERS_LIST', { exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button')).toHaveCount(1);
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+  await page.getByLabel('Action', { exact: true }).fill('SYNTHETIC_NONEXISTENT_ACTION');
+  await page.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page.getByText('No audit events match these filters.')).toBeVisible();
+  await page.getByRole('button', { name: 'Reset filters' }).click();
+  await expect(table).toBeVisible();
+});

@@ -19,12 +19,14 @@ import { auditRequestFailure, requestAuditEvent } from './plugins/audit.js';
 import { createHash } from 'node:crypto';
 import type { IntegrationService } from './modules/integrations/service.js';
 import { registerIntegrationRoutes } from './modules/integrations/routes.js';
+import type { AuditReviewService } from './modules/audit/service.js';
+import { registerAuditReviewRoutes } from './modules/audit/routes.js';
 
 declare module 'fastify' {
   interface FastifyRequest { user: User | null; actor: Actor | null }
 }
 
-export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity, audit: AuditService = unavailableAuditService, integrations?: IntegrationService, options: { rateLimiter?: RateLimiter; externalSubmission?: ExternalSubmissionHandler } = {}) {
+export async function createApp(config: Config, users: UserRepository, verifier?: VerifyIdentity, audit: AuditService = unavailableAuditService, integrations?: IntegrationService, options: { rateLimiter?: RateLimiter; externalSubmission?: ExternalSubmissionHandler; auditReview?: AuditReviewService } = {}) {
   const app = Fastify({
     trustProxy: config.TRUST_PROXY === 'true',
     bodyLimit: config.INGESTION_MAX_BODY_BYTES,
@@ -139,6 +141,7 @@ export async function createApp(config: Config, users: UserRepository, verifier?
       });
     });
     if (integrations) await registerIntegrationRoutes(protectedRoutes, integrations);
+    if (options.auditReview) await registerAuditReviewRoutes(protectedRoutes, options.auditReview);
   });
   await registerExternalSubmissionRoute(app, integrations, limiter, options.externalSubmission);
   if (config.SERVE_FRONTEND === 'true' || (config.SERVE_FRONTEND !== 'false' && isDeployed(config))) {
