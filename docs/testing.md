@@ -54,6 +54,10 @@ External authentication checks reject missing, mixed and wrong-method credential
 
 Audit review checks cover ADMIN-only access, strict query validation, inclusive/exclusive offset-aware time filters, retained user/integration/key actor IDs, module/action/outcome/target filters, descending timestamp/ID order and fixed pages of 50. Real PostgreSQL tests prove that totals and rows share one snapshot even when an event arrives between queries, that the current review event is excluded from its own result, and that failed audit persistence blocks delivery and rolls back the review insert. Stored metadata is projected again on reads to exclude secrets, raw payloads and unknown action fields. UI tests cover query conversion, pagination reset, retained detail fields, safe errors, access refresh and stale request cancellation. Chromium filters real audit history and opens read-only details. No application endpoint edits or deletes audit events.
 
+## Call for Sites storage
+
+The migration chain includes all nine `cfs_` tables. PostgreSQL checks exercise the generated Prisma client, human/integration provenance, key ownership, parent-scoped child order, cross-submission foreign keys, duplicate reference/payload preservation, search vectors and GIN indexes, and deletion cascades that retain shared audit/replay history. The runtime grant script gives explicit module CRUD privileges while preserving append-only audit and shared actor restrictions. These checks establish storage behavior; atomic ingestion and complete search preparation are delivered by later tasks.
+
 ## Synthetic fixtures and explicit seeding
 
 The exact specification fixture is committed at `apps/backend/test/fixtures/call-for-sites/application.json`. It contains only synthetic applicant/site data. Use this common fixture for upcoming extraction, ingestion and export tests.
